@@ -145,15 +145,15 @@ def babysnark_prover(U, n_stmt, CRS, a):
     assert len(vw.coefficients) == m
     assert len(h.coefficients) <= m
 
-    # 3. Compute the H term
+    # 2. Compute the H term
     H = sum([taus[i] * h.coefficients[i] for i in
              range(len(h.coefficients))], G*0)
 
-    # 4. Compute the Vw terms
+    # 3. Compute the Vw terms
     Vw = sum([taus[i] * vw.coefficients[i] for i in range(m)], G*0)
     # assert G * vw(tau) == Vw
 
-    # 5. Compute the Bw terms
+    # 4. Compute the Bw terms
     Bw = sum([bUis[k-n_stmt] * a[k] for k in range(n_stmt, n)], G*0)
     # assert G * (beta * vw(tau)) == Bw
 
