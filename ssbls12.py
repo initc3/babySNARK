@@ -2,7 +2,6 @@ from py_ecc import optimized_bls12_381 as bls12_381
 from py_ecc.optimized_bls12_381 import FQ, FQ2, FQ12, G1, G2, add, neg, multiply, eq
 
 import sys
-sys.path += ['elliptic-curves-finite-fields']
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
 from finitefield.euclidean import extendedEuclideanAlgorithm

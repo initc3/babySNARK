@@ -4,12 +4,8 @@
 A simple, complete for NP expressive, implementation of a SNARK.
 """
 import sys
-sys.path += ['elliptic-curves-finite-fields']
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
-from finitefield.euclidean import extendedEuclideanAlgorithm
-from elliptic import EllipticCurve, Point, Ideal
-import elliptic
 import os
 import random
 import numpy as np
