@@ -7,11 +7,11 @@
 #|  - Constructing a polynomial from a list of coefficients
 #|  - Addition, scalar multiplication, multiplication of polynomials
 #|  - Euclidean division of polynomials
-#|  - Lagrange interpolation of polynomials
 #|
 #| We also have the following FFT-based tools for efficiently converting
 #| between coefficient and evaluation representation.
-#| 
+#|
+#|  - Lagrange interpolation of polynomials
 #|  - Fast fourier transform for finite fields
 #|  - Interpolation and evaluation using FF
 #|
@@ -19,6 +19,25 @@
 # Polynomials over finite fields
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
+
+# Example: Fp(53)
+Fp = FiniteField(53,1)
+Poly = polynomialsOver(Fp)
+
+def _polydemo():
+    p1 = Poly([1,2,3,4,5])
+    print(p1)
+    # 1 + 2 t + 3 t^2 + 4 t^3 + 5 t^5
+_polydemo()
+
+#| ## Pairing friendly elliptic curve
+#| Define concrete parameters and pairing-friendly group.
+#| We need a symmetric group, but the most readily available, bls12-381,
+#| See `py_ecc/` and `ssbls12.py` for details.
+# pairing : G x G -> GT
+from ssbls12 import Fp, Poly, Group, sqrt
+G = Group.G
+GT = Group.GT
 
 #| As an example, here we define the vanishing polynomial, that has
 #| roots at the given points
@@ -34,17 +53,10 @@ def vanishing_poly(S):
         p *= Poly([-s, Fp(1)])
     return p
 
-#| ## Pairing friendly elliptic curve
-#| Define concrete parameters and pairing-friendly group.
-#| We need a symmetric group, but the most readily available, bls12-381,
-#| See `py_ecc/` and `ssbls12.py` for details.
-# pairing : G x G -> GT
-from ssbls12 import Fp, Poly, Group
-G = Group.G
-GT = Group.GT
 
 #| ## Square Constraint Programs
-#| We'll represent square constraint programs as a matrix.
+#| We'll represent square constraint programs using matrix-vector
+#| multiplication. 
 #| 
 #| 
 """
@@ -62,16 +74,19 @@ Predicate to prove:
     prefix(a) = a_stmt
 """
 
-# Using numpy is convenient for element wise operations
+# Use numpy to provide element-wise operations and fancy indexing
 import numpy as np
 import random
 
-# Generate random problem instances
+# Generate random (but sparse) problem instances
 def random_fp():
     return Fp(random.randint(0, Fp.p-1))
 
-def random_matrix(m, n):
-    return np.array([[random_fp() for _ in range(n)] for _ in range(m)])
+# Matrix is m-by-n, but contains only avgPerN*n non-zero values in expectation.
+# The first column is all non-zero.
+def random_sparse_matrix(m, n, avgPerN=2):
+    return np.array([[random_fp() if col == 0 or random.random() < (avgPerN-1)/n else Fp(0)
+                      for col in range(n)] for _ in range(m)])
 
 def generate_solved_instance(m, n):
     """
@@ -80,22 +95,20 @@ def generate_solved_instance(m, n):
     """
     # Generate a, U
     a = np.array([random_fp() for _ in range(n)])
-    U = random_matrix(m, n)
+    U = random_sparse_matrix(m, n)
 
     # Normalize U to satisfy constraints
     Ua2= U.dot(a) * U.dot(a)
     for i in range(m):
-        U[i,:] /= Ua2[i].sqrt()
+        U[i,:] /= sqrt(Ua2[i])
 
     assert((U.dot(a) * U.dot(a) == 1).all())
     return U, a
 
 #-
 # Example
-U, a = generate_solved_instance(10, 6)
-
-# Create a matrix
-U = random_matrix(5, 6)
+U, a = generate_solved_instance(10, 12)
+print(U)
 
 
 #| # Baby Snark
@@ -139,7 +152,7 @@ def babysnark_prover(U, n_stmt, CRS, a):
     rs = [Fp(1+i) for i in range(m)]
     t = vanishing_poly(rs)
     
-    # 1. Find the polynomial p
+    # 1. Find the polynomial p(X)
     Us = [Poly.interpolate(rs, U[:,k]) for k in range(n)]
 
     # First just the witness polynomial
@@ -227,6 +240,8 @@ U, a = generate_solved_instance(m, n)
 a_stmt = a[:n_stmt]
 print('U:', U)
 print('a_stmt:', a_stmt)
+print('nonzero in U:', len(U.nonzero()[0]))
+print('m x n:', m * n)
 
 # Setup
 print("Computing Setup...")
