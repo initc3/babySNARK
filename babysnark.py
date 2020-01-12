@@ -1,22 +1,27 @@
-# Baby SNARK (do do dodo dodo)
+#| # Baby SNARK (do do dodo dodo)
+#| A simple but expressive SNARK.
 
-"""
-A simple, complete for NP expressive, implementation of a SNARK.
-"""
-import sys
+#| ## Polynomial tools
+#| We have a library for polynomials over finite fields, represented
+#| by coefficients. It includes:
+#|  - Constructing a polynomial from a list of coefficients
+#|  - Addition, scalar multiplication, multiplication of polynomials
+#|  - Euclidean division of polynomials
+#|  - Lagrange interpolation of polynomials
+#|
+#| We also have the following FFT-based tools for efficiently converting
+#| between coefficient and evaluation representation.
+#| 
+#|  - Fast fourier transform for finite fields
+#|  - Interpolation and evaluation using FF
+#|
+
+# Polynomials over finite fields
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
-import os
-import random
-import numpy as np
 
-from ssbls12 import Fp, Poly, Group
-
-G = Group.G
-GT = Group.GT
-
-#### Polynomial tools
-
+#| As an example, here we define the vanishing polynomial, that has
+#| roots at the given points
 def vanishing_poly(S):
     """
     args: 
@@ -29,19 +34,22 @@ def vanishing_poly(S):
         p *= Poly([-s, Fp(1)])
     return p
 
+#| ## Pairing friendly elliptic curve
+#| Define concrete parameters and pairing-friendly group.
+#| We need a symmetric group, but the most readily available, bls12-381,
+#| See `py_ecc/` and `ssbls12.py` for details.
+# pairing : G x G -> GT
+from ssbls12 import Fp, Poly, Group
+G = Group.G
+GT = Group.GT
 
-#### Matrix tools
-def random_fp():
-    return Fp(random.randint(0, Fp.p-1))
-
-def random_matrix(m, n):
-    return np.array([[random_fp() for _ in range(n)] for _ in range(m)])
-
-
-#### Square Span Programs
-""" 
-Square Span Program definition:
-   U   (m x n  matrices)
+#| ## Square Constraint Programs
+#| We'll represent square constraint programs as a matrix.
+#| 
+#| 
+"""
+Square Constraint Program definition:
+  - U   (m x n  matrices)
 
 Witness definition:
    a         (n vector)
@@ -54,6 +62,17 @@ Predicate to prove:
     prefix(a) = a_stmt
 """
 
+# Using numpy is convenient for element wise operations
+import numpy as np
+import random
+
+# Generate random problem instances
+def random_fp():
+    return Fp(random.randint(0, Fp.p-1))
+
+def random_matrix(m, n):
+    return np.array([[random_fp() for _ in range(n)] for _ in range(m)])
+
 def generate_solved_instance(m, n):
     """
     Generates a random circuit and satisfying witness
@@ -63,7 +82,7 @@ def generate_solved_instance(m, n):
     a = np.array([random_fp() for _ in range(n)])
     U = random_matrix(m, n)
 
-    # Fix a so that it works
+    # Normalize U to satisfy constraints
     Ua2= U.dot(a) * U.dot(a)
     for i in range(m):
         U[i,:] /= Ua2[i].sqrt()
@@ -71,16 +90,17 @@ def generate_solved_instance(m, n):
     assert((U.dot(a) * U.dot(a) == 1).all())
     return U, a
 
+#-
+# Example
 U, a = generate_solved_instance(10, 6)
 
 # Create a matrix
 U = random_matrix(5, 6)
 
 
-
-############
-# Baby Snark
-############
+#| # Baby Snark
+#|
+#| 
 
 # Setup
 def babysnark_setup(U, n_stmt):
@@ -161,7 +181,6 @@ def babysnark_prover(U, n_stmt, CRS, a):
     return H, Bw, Vw
 
 
-
 # Verifier
 def babysnark_verifier(U, CRS, a_stmt, pi):
     (m, n) = U.shape
@@ -199,7 +218,7 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
 
     return True
 
-
+#- 
 # Sample a problem instance
 print("Generating a Square Span Program instance")
 n_stmt = 4

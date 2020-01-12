@@ -1,63 +1,46 @@
-import sys
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
 from finitefield.euclidean import extendedEuclideanAlgorithm
 import os
 import random
-from functools import reduce
+from finitefield.numbertype import typecheck, memoize, DomainElement
 
+# This defines a representation for polynomials suitable for FFT
 
-"""
-## Polynomials over an example finite field Fp(71)
-"""
+@memoize
+def polynomialsEvalRep(field, omega, m):
+    # Check that omega is a 2^m primitive root of unity
+    assert type(omega) is field
+    assert omega**(2**m) == 1
+    _powers = set([omega**i for i in range(2**m)])
+    assert len(_powers) == 2**m
 
-Fp = FiniteField(53,1) #
-Poly = polynomialsOver(Fp)
+    _poly_coeff = polynomialsOver(field)
 
-p1 = Poly([1,2,3,4,5])
-print(p1)
-# 1 + 2 t + 3 t^2 + 4 t^3 + 5 t^5 
+    class PolynomialEvalRep(DomainElement):
 
-# Evaluating a polynomial (this should be added as __call__!)
-def eval_poly(f, x):
-    assert type(x) is f.field
-    y = f.field(0)
-    for (degree,coeff) in enumerate(f):
-        y += coeff * (x ** degree)
-    return y
+        def __init__(self, xs, ys):
+            # Each element of xs must be a power of omega.
+            # There must be a corresponding y for every x.
+            if type(xs) is not tuple:
+                xs = tuple(xs)
+            if type(ys) is not tuple:
+                ys = tuple(ys)
 
-"""
-## Generate a random polynomial
-"""
+            assert len(xs) <= m+1
+            assert len(xs) == len(ys)
+            for x in xs:
+                assert x in _powers
+            for y in ys:
+                assert type(y) is field
 
-def random_poly_with_intercept(s, k, Poly=Poly):
-    # Returns a degree-k polynomial f
-    # such that f(0) = 
-    coeffs = [None] * (k+1)
-    coeffs[0] = Poly.field(s)
-    for i in range(1,k+1):
-        coeffs[i] = Poly.field(random.randint(0,Poly.field.p-1))
-    return Poly(coeffs)
+            self.num_nonroots = len(xs)
+            self.evalmap = dict(xs, ys)
 
-
-
-"""
-## Compute the Lagrange coefficients  p[i](x)
-   p[i](x) = product[over j != i] of (x - x[j])/(x[i] - x[j])
- 
-"""
-
-def lagrange(S, i, n, Poly=Poly):
-    # 
-    # Assert S is a subset of range(0,self.l)
-    assert type(S) is set
-    S = sorted(S)
-
-    x = Poly([0,1]) # This is the polynomial f(x) = x
-    ONE = Poly([1]) # This is the polynomial f(x) = 1
-    
-    assert i in S
-    mul = lambda a,b: a*b
-    num = reduce(mul, [x - j  for j in S if j != i], ONE)
-    den = reduce(mul, [i - j  for j in S if j != i], Fp(1))
-    return num / den
+        def to_coeffs(self):
+            # To convert back to the coefficient form, we use polynomial interpolation.
+            # The non-zero elements stored in self.evalmap, so we fill in the zero values
+            # here.
+            ys = [self.evalmap[x] if x in self.evalmap else field(0) for x in _powers]
+            f = _poly_coeff.interpolate(xs, ys)
+            return f

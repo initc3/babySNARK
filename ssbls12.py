@@ -8,58 +8,11 @@ from finitefield.euclidean import extendedEuclideanAlgorithm
 
 from functools import reduce
 
-
 # BLS12_381 group order
 Fp = FiniteField(52435875175126190479447740508185965837690552500527637822603658699938581184513,1)  # (# noqa: E501)
 
 Poly = polynomialsOver(Fp)
 Fp.__repr__ = lambda self: hex(self.n)[:15] + "..."
-
-
-# Evaluating a polynomial
-def eval_poly(f, x):
-    assert type(x) is Fp
-    y = Fp(0)
-    xx = Fp(1)
-    for coeff in f.coefficients:
-        y += coeff * xx
-        xx *= x
-    return y
-Poly.__call__ = eval_poly
-
-
-# Interpolating a polynomial
-def interpolate(xs, ys):
-    xs_hash = hash(tuple(xi.n for xi in xs))
-    global _lagrange_cache
-    if '_lagrange_cache' not in globals():
-        _lagrange_cache = {}
-        
-    assert len(xs) == len(ys)
-
-    X = Poly([Fp(0),Fp(1)]) # This is the polynomial f(X) = X
-    ONE = Poly([Fp(1)]) # This is the polynomial f(X) = 1
-
-    f = Poly([Fp(0)])
-    def lagrange(xi):
-        # Let's cache lagrange values
-        if (xs_hash, xi.n) in _lagrange_cache:
-            return _lagrange_cache[(xs_hash, xi.n)]
-        
-        mul = lambda a,b: a*b
-        num = reduce(mul, [X  - xj  for xj in xs if xj != xi], ONE)
-        den = reduce(mul, [xi - xj  for xj in xs if xj != xi], Fp(1))
-        _lagrange_cache[(xs_hash, xi.n)] = num / den
-        return _lagrange_cache[(xs_hash, xi.n)]
-
-    for xi, yi in zip(xs, ys):
-        f += yi * lagrange(xi)
-
-    # # Sanity check
-    # for xi, yi in zip(xs, ys):
-    #     assert eval_poly(f, xi) == yi
-    return f
-Poly.interpolate = interpolate
 
 
 def sqrt(self):
