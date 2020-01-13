@@ -133,7 +133,7 @@ def polynomialsOver(field=fractions.Fraction):
                 y = y * x + coeff
             return y
 
-        # Interpolating a polynomial
+        # Interpolating using lagrange polynomials
         _lagrange_cache = {}
         @classmethod
         def interpolate(cls, xs, ys):

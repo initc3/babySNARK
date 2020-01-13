@@ -12,45 +12,7 @@ from functools import reduce
 Fp = FiniteField(52435875175126190479447740508185965837690552500527637822603658699938581184513,1)  # (# noqa: E501)
 
 Poly = polynomialsOver(Fp)
-Fp.__repr__ = lambda self: hex(self.n)[:15] + "..."
-
-
-def sqrt(self):
-    """Square root.
-    No attempt is made the to return the positive square root.
-    """
-    assert self.p % 2 == 1, "Modulus must be odd"
-    assert pow(self, (self.p - 1) // 2) == 1
-
-    assert self.p % 4 == 1
-
-    # The case that self.modulus % 4 == 1
-    # Cipolla’s Algorithm
-    # http://people.math.gatech.edu/~mbaker/pdf/cipolla2011.pdf
-    t = u = 0
-    for i in range(1, self.p):
-        u = i * i - self
-        if pow(u, (self.p - 1) // 2) == self.p - 1:
-            t = i
-            break
-
-    def cipolla_mult(a, b, w):
-        return ((a[0] * b[0] + a[1] * b[1] * w), (a[0] * b[1] + a[1] * b[0]))
-
-    exp = (self.p + 1) // 2
-    exp_bin = bin(exp)[2:]
-    x1 = (t, 1)
-    x2 = cipolla_mult(x1, x1, u)
-    for i in range(1, len(exp_bin)):
-        if exp_bin[i] == "0":
-            x2 = cipolla_mult(x2, x1, u)
-            x1 = cipolla_mult(x1, x1, u)
-        else:
-            x1 = cipolla_mult(x1, x2, u)
-            x2 = cipolla_mult(x2, x2, u)
-    return x1[0]
-
-Fp.sqrt = sqrt
+Fp.__repr__ = lambda self: hex(self.n)[:15] + "..." if len(hex(self.n))>=15 else hex(self.n)
 
 
 class SS_BLS12_381():
