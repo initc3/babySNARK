@@ -16,26 +16,12 @@ def polynomialsEvalRep(field, omega, n):
     assert type(omega) is field
     omega = field(omega)
     assert omega**(n) == 1
-    _powers = set([omega**i for i in range(n)])
-    assert len(_powers) == n
+    _powers = [omega**i for i in range(n)]
+    assert len(set(_powers)) == n
 
     _poly_coeff = polynomialsOver(field)
 
     class PolynomialEvalRep(object):
-
-        @classmethod
-        def from_coeffs(cls, poly):
-            assert type(poly) is _poly_coeff
-            assert poly.degree()
-            # TODO: use FFT evaluation
-            xs = []
-            ys = []
-            for x in _powers:
-                y = poly(x)
-                if y != 0:
-                    xs.append(x)
-                    ys.append(y)
-            return cls(xs, ys)
 
         def __init__(self, xs, ys):
             # Each element of xs must be a power of omega.
@@ -54,13 +40,23 @@ def polynomialsEvalRep(field, omega, n):
 
             self.evalmap = dict(zip(xs, ys))
 
+        @classmethod
+        def from_coeffs(cls, poly):
+            assert type(poly) is _poly_coeff
+            assert poly.degree() <= n
+            padded_coeffs = poly.coefficients + [field(0)] * (n - len(poly.coefficients))
+            ys = fft_helper(padded_coeffs, omega, field)
+            xs = [omega**i for i in range(n) if ys[i] != 0]
+            ys = [y for y in ys if y != 0]
+            return cls(xs, ys)
+            
         def to_coeffs(self):
             # To convert back to the coefficient form, we use polynomial interpolation.
             # The non-zero elements stored in self.evalmap, so we fill in the zero values
             # here.
             ys = [self.evalmap[x] if x in self.evalmap else field(0) for x in _powers]
-            f = _poly_coeff.interpolate(_powers, ys)
-            return f
+            coeffs = [b / field(n) for b in fft_helper(ys, 1 / omega, field)]
+            return _poly_coeff(coeffs)
 
         _lagrange_cache = {}
         def __call__(self, x):
@@ -180,8 +176,6 @@ def polynomialsEvalRep(field, omega, n):
             hc_rep = pc_rep / tc_rep
             hc = hc_rep.to_coeffs()
 
-            assert pc == tc * hc
-
             # Compute h(X) from h(cX) by dividing coefficients
             c_acc = field(1)
             h = Poly(list(hc.coefficients))  # make a copy
@@ -189,13 +183,38 @@ def polynomialsEvalRep(field, omega, n):
                 h.coefficients[-i-1] /= c_acc
                 c_acc *= c
 
-            # Correctness check
-            assert p == t * h
-
+            # Correctness checks
+            # assert pc == tc * hc
+            # assert p == t * h
             return h
 
 
     return PolynomialEvalRep
+
+
+def fft_helper(a, omega, field):
+    """
+    Given coefficients A of polynomial this method does FFT and returns
+    the evaluation of the polynomial at [omega^0, omega^(n-1)]
+
+    If the polynomial is a0*x^0 + a1*x^1 + ... + an*x^n then the coefficients
+    list is of the form [a0, a1, ... , an].
+    """
+    n = len(a)
+    assert not (n & (n - 1)), "n must be a power of 2"
+
+    if n == 1:
+        return a
+
+    b, c = a[0::2], a[1::2]
+    b_bar = fft_helper(b, pow(omega, 2), field)
+    c_bar = fft_helper(c, pow(omega, 2), field)
+    a_bar = [field(1)] * (n)
+    for j in range(n):
+        k = j % (n // 2)
+        a_bar[j] = b_bar[k] + pow(omega, j) * c_bar[k]
+    return a_bar
+
 
 def get_omega(field, n, seed=None):
     """
