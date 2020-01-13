@@ -8,10 +8,16 @@ from finitefield.polynomial import polynomialsOver
 from polynomial_extra import get_omega, polynomialsEvalRep
 import numpy as np
 import random
-from babysnark import generate_solved_instance, omega_base, random_fp, vanishing_poly
+from babysnark import generate_solved_instance, omega_base, random_fp
 from ssbls12 import Fp, Poly, Group
 G = Group.G
 GT = Group.GT
+
+def vanishing_poly(omega, n):
+    # For the special case of evaluating at all n powers of omega,
+    # the vanishing poly has a special form.
+    #  t(X) = (X-1)(X-omega)....(X-omega^(n-1)) = X^n - 1
+    return Poly([Fp(-1)] + [Fp(0)]*(n-1) + [Fp(1)])
 
 # Setup
 def babysnarkopt_setup(U, n_stmt):
@@ -23,7 +29,6 @@ def babysnarkopt_setup(U, n_stmt):
     assert mpow2 & mpow2 - 1 == 0, "mpow2 must be a power of 2"
     omega = omega_base ** (2**32 // mpow2)
     PolyEvalRep = polynomialsEvalRep(Fp, omega, mpow2)
-    rs = [Fp(omega**i) for i in range(m)]
 
     # Generate polynomials u from columns of U
     Us = []
@@ -61,11 +66,10 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
     # Target is the vanishing polynomial
     mpow2 = m
     assert mpow2 & mpow2 - 1 == 0, "mpow2 must be a power of 2"
-    omega1 = omega_base ** (2**32 // mpow2)
+    omega  = omega_base ** (2**32 // mpow2)
     omega2 = omega_base ** (2**32 // (2*mpow2))
-    PolyEvalRep = polynomialsEvalRep(Fp, omega1, mpow2)
-    rs = [Fp(omega1**i) for i in range(mpow2)]
-    t = vanishing_poly(rs)
+    PolyEvalRep = polynomialsEvalRep(Fp, omega, mpow2)
+    t = vanishing_poly(omega, mpow2)
     
     # 1. Find the polynomial p(X)
     Us = []
@@ -74,7 +78,7 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
         ys = []
         for i in range(m):
             if U[i,k] != 0:
-                xs.append(omega1**i)
+                xs.append(omega**i)
                 ys.append(U[i,k])
         Us.append(PolyEvalRep(xs, ys))
 
@@ -141,8 +145,7 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
     assert m & m - 1 == 0, "m must be a power of 2"
     omega = omega_base ** (2**32 // m)
     PolyEvalRep = polynomialsEvalRep(Fp, omega, m)
-    rs = [Fp(omega**i) for i in range(m)]
-    t = vanishing_poly(rs)
+    t = vanishing_poly(omega, m)
     T = sum([taus[i] * t.coefficients[i] for i in range(m+1)], G*0)
     
     # Compute the polynomials from U
