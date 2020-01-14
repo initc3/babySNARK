@@ -14,10 +14,10 @@
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
 from finitefield.euclidean import extendedEuclideanAlgorithm
-import os
 import random
 from finitefield.numbertype import typecheck, memoize, DomainElement
 from functools import reduce
+import numpy as np
 
 
 #| ## Choosing roots of unity 
@@ -217,12 +217,12 @@ def polynomialsEvalRep(field, omega, n):
             assert type(t) is _poly_coeff
             # Compute p(cX), t(cX) by multiplying coefficients
             c_acc = field(1)
-            pc = Poly(list(p.coefficients))  # make a copy
+            pc = _poly_coeff(list(p.coefficients))  # make a copy
             for i in range(p.degree() + 1):
                 pc.coefficients[-i-1] *= c_acc
                 c_acc *= c
             c_acc = field(1)
-            tc = Poly(list(t.coefficients))  # make a copy
+            tc = _poly_coeff(list(t.coefficients))  # make a copy
             for i in range(t.degree() + 1):
                 tc.coefficients[-i-1] *= c_acc
                 c_acc *= c
@@ -235,7 +235,7 @@ def polynomialsEvalRep(field, omega, n):
 
             # Compute h(X) from h(cX) by dividing coefficients
             c_acc = field(1)
-            h = Poly(list(hc.coefficients))  # make a copy
+            h = _poly_coeff(list(hc.coefficients))  # make a copy
             for i in range(hc.degree() + 1):
                 h.coefficients[-i-1] /= c_acc
                 c_acc *= c
@@ -248,7 +248,59 @@ def polynomialsEvalRep(field, omega, n):
 
     return PolynomialEvalRep
 
+#| ## Sparse Matrix
+#| In our setting, we have O(m*m) elements in the matrix, and expect the number of
+#| elements to be O(m).
+#| In this setting, it's appropriate to use a rowdict representation - a dense
+#| array of dictionaries, one for each row, where the keys of each dictionary
+#| are column indices.
 
+class RowDictSparseMatrix():
+    # Only a few necessary methods are included here.
+    # This could be replaced with a generic sparse matrix class, such as scipy.sparse,
+    # but this does not work as well with custom value types like Fp
+
+    def __init__(self, m, n, zero=None):
+        self.m = m
+        self.n = n
+        self.shape = (m,n)
+        self.zero = zero
+        self.rowdicts = [dict() for _ in range(m)]
+
+    def __setitem__(self, key, v):
+        i, j = key
+        self.rowdicts[i][j] = v
+
+    def __getitem__(self, key):
+        i, j = key
+        return self.rowdicts[i][j] if j in self.rowdicts[i] else self.zero
+
+    def items(self):
+        for i in range(self.m):
+            for j, v in self.rowdicts[i].items():
+                yield (i,j), v
+    
+    def dot(self, other):
+        if isinstance(other, np.ndarray):
+            assert other.dtype == 'O'
+            assert other.shape in ((self.n,),(self.n,1))
+            ret = np.empty((self.m,), dtype='O')
+            ret.fill(self.zero)
+            for i in range(self.m):
+                for j, v in self.rowdicts[i].items():
+                    ret[i] += other[j] * v
+            return ret
+
+    def to_dense(self):
+        mat = np.empty((self.m, self.n), dtype='O')
+        mat.fill(self.zero)
+        for (i,j), val in self.items():
+            mat[i,j] = val
+        return mat
+
+    def __repr__(self): return repr(self.rowdicts)
+
+#-
 # Examples
 if __name__ == '__main__':
     Fp = FiniteField(52435875175126190479447740508185965837690552500527637822603658699938581184513,1)  # (# noqa: E501)

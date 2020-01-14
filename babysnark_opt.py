@@ -19,7 +19,7 @@ GT = Group.GT
 #| power of two n up to n <= 2^**32.
 #| This follows because for the ssbls12-381 exponent field Fp, we have
 #|    2^32 divides (p - 1).
-from polynomial_evalrep import get_omega, polynomialsEvalRep
+from polynomial_evalrep import get_omega, polynomialsEvalRep, RowDictSparseMatrix
 
 omega_base = get_omega(Fp, 2**32, seed=0)
 
@@ -77,58 +77,11 @@ _demo()
 #| matrix U, will be sparse, with only O(m + n) non-zero values despite being
 #| an (m * n) matrix.
 #|
-#| In this setting, it's appropriate to use a rowdict representation - a dense
-#| array of dictionaries, one for each row, where the keys of each dictionary
-#| are column indices.
-class RowDictSparseMatrix():
-    # Only a few necessary methods are included here.
-    # This could be replaced with a generic sparse matrix class, such as scipy.sparse,
-    # but this does not work as well with custom value types like Fp
-
-    def __init__(self, m, n, zero=Fp(0)):
-        self.m = m
-        self.n = n
-        self.shape = (m,n)
-        self.zero = zero
-        self.rowdicts = [dict() for _ in range(m)]
-
-    def __setitem__(self, key, v):
-        i, j = key
-        self.rowdicts[i][j] = v
-
-    def __getitem__(self, key):
-        i, j = key
-        return self.rowdicts[i][j] if j in self.rowdicts[i] else self.zero
-
-    def items(self):
-        for i in range(m):
-            for j, v in self.rowdicts[i].items():
-                yield (i,j), v
-    
-    def dot(self, other):
-        if isinstance(other, np.ndarray):
-            assert other.dtype == 'O'
-            assert other.shape in ((self.n,),(self.n,1))
-            ret = np.empty((self.m,), dtype='O')
-            ret.fill(self.zero)
-            for i in range(m):
-                for j, v in self.rowdicts[i].items():
-                    ret[i] += other[j] * v
-            return ret
-
-    def to_dense(self):
-        mat = np.empty((self.m, self.n), dtype='O')
-        mat.fill(self.zero)
-        for (i,j), val in self.items():
-            mat[i,j] = val
-        return mat
-
-    def __repr__(self): return repr(self.rowdicts)
 
 # Matrix is m-by-n, but contains only avgPerN*n non-zero values in expectation.
 # The first column is all non-zero.
 def random_sparse_matrix(m, n, avgPerN=2):
-    U = RowDictSparseMatrix(m, n)
+    U = RowDictSparseMatrix(m, n, Fp(0))
 
     # First fill the first column
     for row in range(m):
