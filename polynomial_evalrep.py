@@ -1,3 +1,16 @@
+#| # Evaluation Representation of Polynomials and FFT optimizations
+#| In addition to the coefficient-based representation of polynomials used
+#| in babysnark.py, for performance we will also use an alternative
+#| representation where the polynomial is evaluated at a fixed set of points.
+#| Some operations, like multiplication and division, are significantly more
+#| efficient in this form.
+#| We can use FFT-based tools for efficiently converting
+#| between coefficient and evaluation representation.
+#|
+#| This library provides:
+#|  - Fast fourier transform for finite fields
+#|  - Interpolation and evaluation using FFT
+
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
 from finitefield.euclidean import extendedEuclideanAlgorithm
@@ -6,8 +19,52 @@ import random
 from finitefield.numbertype import typecheck, memoize, DomainElement
 from functools import reduce
 
-# This defines a representation for polynomials suitable for FFT
 
+#| ## Choosing roots of unity 
+def get_omega(field, n, seed=None):
+    """
+    Given a field, this method returns an n^th root of unity.
+    If the seed is not None then this method will return the
+    same n'th root of unity for every run with the same seed
+
+    This only makes sense if n is a power of 2.
+    """
+    rnd = random.Random(seed)
+    assert n & n - 1 == 0, "n must be a power of 2"
+    x = field(rnd.randint(0, field.p-1))
+    y = pow(x, (field.p - 1) // n)
+    if y == 1 or pow(y, n // 2) == 1:
+        return get_omega(field, n)
+    assert pow(y, n) == 1, "omega must be 2n'th root of unity"
+    assert pow(y, n // 2) != 1, "omega must be primitive 2n'th root of unity"
+    return y
+
+#| ## Fast Fourier Transform on Finite Fields
+def fft_helper(a, omega, field):
+    """
+    Given coefficients A of polynomial this method does FFT and returns
+    the evaluation of the polynomial at [omega^0, omega^(n-1)]
+
+    If the polynomial is a0*x^0 + a1*x^1 + ... + an*x^n then the coefficients
+    list is of the form [a0, a1, ... , an].
+    """
+    n = len(a)
+    assert not (n & (n - 1)), "n must be a power of 2"
+
+    if n == 1:
+        return a
+
+    b, c = a[0::2], a[1::2]
+    b_bar = fft_helper(b, pow(omega, 2), field)
+    c_bar = fft_helper(c, pow(omega, 2), field)
+    a_bar = [field(1)] * (n)
+    for j in range(n):
+        k = j % (n // 2)
+        a_bar[j] = b_bar[k] + pow(omega, j) * c_bar[k]
+    return a_bar
+
+
+#| ## Representing a polynomial by evaluation at fixed points
 @memoize
 def polynomialsEvalRep(field, omega, n):
     assert n & n - 1 == 0, "n must be a power of 2"
@@ -192,61 +249,19 @@ def polynomialsEvalRep(field, omega, n):
     return PolynomialEvalRep
 
 
-def fft_helper(a, omega, field):
-    """
-    Given coefficients A of polynomial this method does FFT and returns
-    the evaluation of the polynomial at [omega^0, omega^(n-1)]
-
-    If the polynomial is a0*x^0 + a1*x^1 + ... + an*x^n then the coefficients
-    list is of the form [a0, a1, ... , an].
-    """
-    n = len(a)
-    assert not (n & (n - 1)), "n must be a power of 2"
-
-    if n == 1:
-        return a
-
-    b, c = a[0::2], a[1::2]
-    b_bar = fft_helper(b, pow(omega, 2), field)
-    c_bar = fft_helper(c, pow(omega, 2), field)
-    a_bar = [field(1)] * (n)
-    for j in range(n):
-        k = j % (n // 2)
-        a_bar[j] = b_bar[k] + pow(omega, j) * c_bar[k]
-    return a_bar
-
-
-def get_omega(field, n, seed=None):
-    """
-    Given a field, this method returns an n^th root of unity.
-    If the seed is not None then this method will return the
-    same n'th root of unity for every run with the same seed
-
-    This only makes sense if n is a power of 2.
-    """
-    rnd = random.Random(seed)
-    assert n & n - 1 == 0, "n must be a power of 2"
-    x = field(rnd.randint(0, field.p-1))
-    y = pow(x, (field.p - 1) // n)
-    if y == 1 or pow(y, n // 2) == 1:
-        return get_omega(field, n)
-    assert pow(y, n) == 1, "omega must be 2n'th root of unity"
-    assert pow(y, n // 2) != 1, "omega must be primitive 2n'th root of unity"
-    return y
-
-
 # Examples
-Fp = FiniteField(52435875175126190479447740508185965837690552500527637822603658699938581184513,1)  # (# noqa: E501)
-Poly = polynomialsOver(Fp)
+if __name__ == '__main__':
+    Fp = FiniteField(52435875175126190479447740508185965837690552500527637822603658699938581184513,1)  # (# noqa: E501)
+    Poly = polynomialsOver(Fp)
 
-n = 8
-omega = get_omega(Fp, n)
-PolyEvalRep = polynomialsEvalRep(Fp, omega, n)
+    n = 8
+    omega = get_omega(Fp, n)
+    PolyEvalRep = polynomialsEvalRep(Fp, omega, n)
 
-f = Poly([1,2,3,4,5])
-xs = tuple([omega**i for i in range(n)])
-ys = tuple(map(f, xs))
-# print('xs:', xs)
-# print('ys:', ys)
+    f = Poly([1,2,3,4,5])
+    xs = tuple([omega**i for i in range(n)])
+    ys = tuple(map(f, xs))
+    # print('xs:', xs)
+    # print('ys:', ys)
 
-assert f == PolyEvalRep(xs, ys).to_coeffs()
+    assert f == PolyEvalRep(xs, ys).to_coeffs()

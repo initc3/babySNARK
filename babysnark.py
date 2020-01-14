@@ -2,19 +2,15 @@
 #| A simple but expressive SNARK.
 
 #| ## Polynomial tools
-#| We have a library for polynomials over finite fields, represented
+#| We start with a library for polynomials over finite fields, represented
 #| by coefficients. It includes:
 #|  - Constructing a polynomial from a list of coefficients
 #|  - Addition, scalar multiplication, multiplication of polynomials
 #|  - Euclidean division of polynomials
 #|  - Lagrange interpolation of polynomials
 #|
-#| We also have the following FFT-based tools for efficiently converting
-#| between coefficient and evaluation representation, but will use these
-#| later in babysnark_opt.py
-#|  - Fast fourier transform for finite fields
-#|  - Interpolation and evaluation using FFT
 #|
+
 
 # Polynomials over finite fields
 from finitefield.finitefield import FiniteField
@@ -30,7 +26,7 @@ def _polydemo():
     # 1 + 2 t + 3 t^2 + 4 t^3 + 5 t^5
 _polydemo()
 
-#| ## Pairing friendly elliptic curve
+#| ## Choosing a field and pairing-friendly curve
 #| Define concrete parameters and pairing-friendly group.
 #| We need a symmetric group, but the most readily available, bls12-381,
 #| See `py_ecc/` and `ssbls12.py` for details.
@@ -71,7 +67,7 @@ def vanishing_poly(S):
 Square Constraint Program definition:
   - U   (m x n  matrices)
 
-Witness definition:
+Witness definition (includes statement):
    a         (n vector)
 
 Statement definition:
@@ -79,7 +75,7 @@ Statement definition:
 
 Predicate to prove:
     (Ua)^2 = 1
-    prefix(a) = a_stmt
+    a[:l] = a_stmt
 """
 
 # Use numpy to provide element-wise operations and fancy indexing
@@ -208,7 +204,6 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
     assert len(ROOTS) >= m
-    print(__file__, "ROOTS:", ROOTS)
     n_stmt = len(a_stmt)
 
     # Parse the CRS

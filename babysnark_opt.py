@@ -19,7 +19,7 @@ GT = Group.GT
 #| power of two n up to n <= 2^**32.
 #| This follows because for the ssbls12-381 exponent field Fp, we have
 #|    2^32 divides (p - 1).
-from polynomial_extra import get_omega, polynomialsEvalRep
+from polynomial_evalrep import get_omega, polynomialsEvalRep
 
 omega_base = get_omega(Fp, 2**32, seed=0)
 
@@ -292,8 +292,6 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
 def babysnarkopt_verifier(U, CRS, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
-
-    print(__file__, "ROOTS:", ROOTS)
 
     # Parse the CRS
     taus = CRS[:m+1]
