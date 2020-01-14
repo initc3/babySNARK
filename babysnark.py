@@ -36,13 +36,18 @@ _polydemo()
 #| See `py_ecc/` and `ssbls12.py` for details.
 # pairing : G x G -> GT
 from ssbls12 import Fp, Poly, Group
-from polynomial_extra import get_omega
 
 G = Group.G
 GT = Group.GT
 
-#| Define some canonical roots of unity
-omega_base = get_omega(Fp, 2**32, seed=0)
+#| Define some canonical roots
+# This is a global value.
+# Initializing it to 1,2,...,128 is enough for small examples in this file.
+# We'll overwrite it in `babysnark_setup` when a larger constraint system
+# is needed. And in `babysnark_opt.py` we'll define a different policy for
+# choosing roots that leads to FFT optimization.
+ROOTS = [Fp(i) for i in range(128)]
+
 
 #| Here we define the vanishing polynomial, that has
 #| roots at the given points
@@ -62,8 +67,6 @@ def vanishing_poly(S):
 #| ## Square Constraint Programs
 #| We'll represent square constraint programs using matrix-vector
 #| multiplication.
-#| To be efficient when the constraints do not have many terms,
-#| we'll use scipy sparse matrices.
 """
 Square Constraint Program definition:
   - U   (m x n  matrices)
@@ -83,25 +86,12 @@ Predicate to prove:
 import numpy as np
 import random
 
-# Generate random (but sparse) problem instances
+# Generate random problem instances
 def random_fp():
     return Fp(random.randint(0, Fp.p-1))
 
-# Matrix is m-by-n, but contains only avgPerN*n non-zero values in expectation.
-# The first column is all non-zero.
-def random_sparse_matrix(m, n, avgPerN=2):
-    # # First column
-    # mat = sparse.lil_matrix((m, n), dtype=np.object)
-    # for i in range(m):
-    #     mat[i,0] = random_fp()
-
-    # # Randomize
-    # for _ in range((avgPerN-1)*n):
-    #     i = random.randint(0, m-1)
-    #     j = random.randint(1, n-1)
-    #     mat[i,j] = [random_fp()]
-    return np.array([[random_fp() if col == 0 or random.random() < (avgPerN-1)/n else Fp(0)
-                      for col in range(n)] for _ in range(m)])
+def random_matrix(m, n):
+    return np.array([[random_fp() for _ in range(n)] for _ in range(m)])
 
 def generate_solved_instance(m, n):
     """
@@ -110,7 +100,7 @@ def generate_solved_instance(m, n):
     """
     # Generate a, U
     a = np.array([random_fp() for _ in range(n)])
-    U = random_sparse_matrix(m, n)
+    U = random_matrix(m, n)
 
     # Normalize U to satisfy constraints
     Ua2 = U.dot(a) * U.dot(a)
@@ -136,11 +126,12 @@ def babysnark_setup(U, n_stmt):
     assert n_stmt < n
 
     # Generate roots for each gate
-    omega = omega_base ** (2**32 // m)
-    rs = [Fp(omega**i) for i in range(m)]
+    global ROOTS
+    if len(ROOTS) < m:
+        ROOTS = tuple(range(m))
 
     # Generate polynomials u from columns of U
-    Us = [Poly.interpolate(rs, U[:,k]) for k in range(n)]
+    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
 
     # Trapdoors
     global tau, beta, gamma
@@ -160,21 +151,21 @@ def babysnark_prover(U, n_stmt, CRS, a):
     (m, n) = U.shape
     assert n == len(a)
     assert len(CRS) == (m + 1) + 2 + (n - n_stmt)
+    assert len(ROOTS) >= m
 
+    # Parse the CRS
     taus = CRS[:m+1]
     bUis = CRS[-(n-n_stmt):]
 
-    # Choose roots consistent with the FFT version
-    omega = omega_base ** (2**32 // m)
-    rs = [Fp(omega**i) for i in range(m)]
-
     # Target is the vanishing polynomial
-    t = vanishing_poly(rs)
+    t = vanishing_poly(ROOTS[:m])
     
-    # 1. Find the polynomial p(X)
-    Us = [Poly.interpolate(rs[:m], U[:,k]) for k in range(n)]
+    # Convert the basis polynomials Us to coefficient form by interpolating
+    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
 
-    # First just the witness polynomial
+    # 1. Find the polynomial p(X)
+
+    # First just the witness polynomial (we'll use it later)
     vw = Poly([])
     for k in range(n_stmt, n):
         vw += Us[k] * a[k]
@@ -184,18 +175,19 @@ def babysnark_prover(U, n_stmt, CRS, a):
     for k in range(n_stmt):
         v += Us[k] * a[k]
 
+    # Finally p
     p = v * v - 1
 
+    # 2. Compute the H term
     # Find the polynomial h by dividing p / t
     h = p / t
 
-    # 2. Compute the H term
     H = sum([taus[i] * h.coefficients[i] for i in
              range(len(h.coefficients))], G*0)
 
     # 3. Compute the Vw terms
     Vw = sum([taus[i] * vw.coefficients[i] for i in range(m)], G*0)
-    assert G * vw(tau) == Vw
+    # assert G * vw(tau) == Vw
 
     # 4. Compute the Bw terms
     Bw = sum([bUis[k-n_stmt] * a[k] for k in range(n_stmt, n)], G*0)
@@ -215,6 +207,9 @@ def babysnark_prover(U, n_stmt, CRS, a):
 def babysnark_verifier(U, CRS, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
+    assert len(ROOTS) >= m
+    print(__file__, "ROOTS:", ROOTS)
+    n_stmt = len(a_stmt)
 
     # Parse the CRS
     taus = CRS[:m+1]
@@ -223,19 +218,16 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
     bUis = CRS[-(n-n_stmt):]
 
     # Compute the target poly term
-    omega = omega_base ** (2**32 // m)
-    rs = [Fp(omega**i) for i in range(m)]
-
-    t = vanishing_poly(rs)
+    t = vanishing_poly(ROOTS[:m])
     T = sum([taus[i] * t.coefficients[i] for i in range(m+1)], G*0)
     
-    # Compute the polynomials from U
-    Us = [Poly.interpolate(rs, U[:,k]) for k in range(n)]
+    # Convert the basis polynomials Us to coefficient form by interpolating
+    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
     
     # Compute Vs and V = Vs + Vw
     vs = Poly([0])
     for k in range(n_stmt):
-        vs += a[k] * Us[k]
+        vs += a_stmt[k] * Us[k]
 
     Vs = sum([taus[i] * vs.coefficients[i] for i in range(m)], Group.G*0)
     V = Vs + Vw
@@ -246,6 +238,9 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
 
     # Check 2
     print('Checking (2)')
+    #print('GT', GT)
+    #print('H.pair(T) * GT:', H.pair(T) * GT)
+    #print('V.pair(V):', V.pair(V))
     assert H.pair(T) * GT == V.pair(V)
 
     return True

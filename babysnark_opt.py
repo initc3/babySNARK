@@ -2,16 +2,35 @@
 #| This is the same algorithm as BabySNARK, except optimized so that
 #| the overhead is quasilinear rather than quadratic (in the number of
 #| constraints).
+from babysnark import *
 
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
-from polynomial_extra import get_omega, polynomialsEvalRep
-import numpy as np
-import random
-from babysnark import generate_solved_instance, omega_base, random_fp
 from ssbls12 import Fp, Poly, Group
 G = Group.G
 GT = Group.GT
+
+#| # Choosing roots of unity
+#| The BLS12-381 is chosen in part because it's FFT friendly. To use radix-2
+#| FFT, we need to find m^th roots of unity, where m is a power of two, and
+#| m is the degree bound of the polynomial we want to represent.
+#|
+#| In the BLS12-381, we can find primitive n^th roots of unity, for any
+#| power of two n up to n <= 2^**32.
+#| This follows because for the ssbls12-381 exponent field Fp, we have
+#|    2^32 divides (p - 1).
+from polynomial_extra import get_omega, polynomialsEvalRep
+
+omega_base = get_omega(Fp, 2**32, seed=0)
+
+# These are globals. They're set to be large enough for small examples, and in
+# babysnark_setup we'll change them for other sizes anyway.
+mpow2 = 128  # nearest power of 2 greather than m, the number of constraints
+omega = omega_base ** (2**32 // mpow2)
+
+# This overwrite a global parameter imported from babysnark.
+ROOTS.clear()
+ROOTS += [omega**i for i in range(mpow2)]
 
 def vanishing_poly(omega, n):
     # For the special case of evaluating at all n powers of omega,
@@ -19,16 +38,156 @@ def vanishing_poly(omega, n):
     #  t(X) = (X-1)(X-omega)....(X-omega^(n-1)) = X^n - 1
     return Poly([Fp(-1)] + [Fp(0)]*(n-1) + [Fp(1)])
 
+#| # Evaluation Representation of polynomials
+#|
+#| This representation is sparse - it only stores the non-zero values,
+#| so if it has lots of roots among the powers of omega,
+def _demo():
+    PolyEvalRep = polynomialsEvalRep(Fp, omega, mpow2)
+
+    # Example polynomial that has roots at most of the powers of omega
+    xs = [omega**1, omega**4, omega**5]
+    ys = [Fp(3), Fp(5), Fp(1)]
+    f_rep = PolyEvalRep(xs, ys)
+
+    for i in [0,2,3,6,7]:
+        assert f_rep(omega**i) == Fp(0)
+    for i, x in enumerate(xs):
+        assert f_rep(x) == ys[i]
+
+    # Convert to coeffs and back
+    f = f_rep.to_coeffs()
+    assert f_rep.to_coeffs() == PolyEvalRep.from_coeffs(f).to_coeffs()
+
+    # Check f and f_rep are consistent
+    tau = random_fp()
+    assert f(tau) == f_rep(tau)
+
+    # print('f_rep:', f_rep)
+    # print('f:', f)
+_demo()
+
+#| # Sparse representation of Square Constraint Systems
+#|
+#| In order to reach our goal of quasilinear overhead (in the number of gates),
+#| we can't just use the dense numpy matrix U to represent our constraints.
+#|
+#| Suppose we use the construction from boolean circuits, and that the circuit
+#| has an average fan-in of some constant (e.g., average fan-in of ~2). Then the
+#| matrix U, will be sparse, with only O(m + n) non-zero values despite being
+#| an (m * n) matrix.
+#|
+#| In this setting, it's appropriate to use a rowdict representation - a dense
+#| array of dictionaries, one for each row, where the keys of each dictionary
+#| are column indices.
+class RowDictSparseMatrix():
+    # Only a few necessary methods are included here.
+    # This could be replaced with a generic sparse matrix class, such as scipy.sparse,
+    # but this does not work as well with custom value types like Fp
+
+    def __init__(self, m, n, zero=Fp(0)):
+        self.m = m
+        self.n = n
+        self.shape = (m,n)
+        self.zero = zero
+        self.rowdicts = [dict() for _ in range(m)]
+
+    def __setitem__(self, key, v):
+        i, j = key
+        self.rowdicts[i][j] = v
+
+    def __getitem__(self, key):
+        i, j = key
+        return self.rowdicts[i][j] if j in self.rowdicts[i] else self.zero
+
+    def items(self):
+        for i in range(m):
+            for j, v in self.rowdicts[i].items():
+                yield (i,j), v
+    
+    def dot(self, other):
+        if isinstance(other, np.ndarray):
+            assert other.dtype == 'O'
+            assert other.shape in ((self.n,),(self.n,1))
+            ret = np.empty((self.m,), dtype='O')
+            ret.fill(self.zero)
+            for i in range(m):
+                for j, v in self.rowdicts[i].items():
+                    ret[i] += other[j] * v
+            return ret
+
+    def to_dense(self):
+        mat = np.empty((self.m, self.n), dtype='O')
+        mat.fill(self.zero)
+        for (i,j), val in self.items():
+            mat[i,j] = val
+        return mat
+
+    def __repr__(self): return repr(self.rowdicts)
+
+# Matrix is m-by-n, but contains only avgPerN*n non-zero values in expectation.
+# The first column is all non-zero.
+def random_sparse_matrix(m, n, avgPerN=2):
+    U = RowDictSparseMatrix(m, n)
+
+    # First fill the first column
+    for row in range(m):
+        U[row,0] = random_fp()
+
+    # Then pick randomly for the rest
+    for _ in range(avgPerN * n - 1):
+        row = random.randrange(m)
+        col = random.randrange(n)
+        U[row,col] = random_fp()
+
+    return U
+
+def generate_solved_instance(m, n):
+    """
+    Generates a random circuit and satisfying witness
+    U, (stmt, wit)
+    """
+    # Generate a, U
+    a = np.array([random_fp() for _ in range(n)])
+    U = random_sparse_matrix(m, n)
+
+    # Normalize U to satisfy constraints
+    Ua2 = U.dot(a) * U.dot(a)
+    for (i,j), val in U.items():
+        U[i,j] /= Ua2[i].sqrt()
+
+    assert((U.dot(a) * U.dot(a) == 1).all())
+    Ud = U.to_dense()
+    assert((Ud.dot(a) * Ud.dot(a) == 1).all())
+    return U, a
+
+#-
+# Example
+m, n = 10, 12
+U = random_sparse_matrix(m, n)
+U, a = generate_solved_instance(m, n)
+print(U)
+print(U.to_dense())
+
+#| # Baby SNARK optimized implementation
 # Setup
+
 def babysnarkopt_setup(U, n_stmt):
     (m, n) = U.shape
     assert n_stmt < n
 
     # Generate roots for each gate
+    # TODO: Handle padding?
+    global mpow2, omega
     mpow2 = m
     assert mpow2 & mpow2 - 1 == 0, "mpow2 must be a power of 2"
     omega = omega_base ** (2**32 // mpow2)
     PolyEvalRep = polynomialsEvalRep(Fp, omega, mpow2)
+
+    global ROOTS
+    if len(ROOTS) != m:
+        ROOTS.clear()
+        ROOTS += [omega**i for i in range(m)]
 
     # Generate polynomials u from columns of U
     Us = []
@@ -89,14 +248,13 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
 
     # Then the rest of the v polynomial
     v = vw.__copy__()
-    # v = Poly(vw)
     for k in range(n_stmt):
         v += Us[k] * a[k]
 
     # Now we need to convert between representations to multiply and divide
     PolyEvalRep2 = polynomialsEvalRep(Fp, omega2, 2*mpow2)
-    rs2 = [omega2**i for i in range(2*mpow2)]
-    ONE = PolyEvalRep2(rs2, [Fp(1) for _ in rs2])
+    roots2 = [omega2**i for i in range(2*mpow2)]
+    ONE = PolyEvalRep2(roots2, [Fp(1) for _ in roots2])
 
     vv = v.to_coeffs()
     v2 = PolyEvalRep2.from_coeffs(v.to_coeffs())
@@ -135,6 +293,8 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
 
+    print(__file__, "ROOTS:", ROOTS)
+
     # Parse the CRS
     taus = CRS[:m+1]
     gamma = CRS[m+1]
@@ -146,6 +306,7 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
     omega = omega_base ** (2**32 // m)
     PolyEvalRep = polynomialsEvalRep(Fp, omega, m)
     t = vanishing_poly(omega, m)
+    print('t:', t)
     T = sum([taus[i] * t.coefficients[i] for i in range(m+1)], G*0)
     
     # Compute the polynomials from U
@@ -158,7 +319,7 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
                 xs.append(omega**i)
                 ys.append(U[i,k])
         Us.append(PolyEvalRep(xs, ys))
-    
+
     # Compute Vs and V = Vs + Vw
     vs = PolyEvalRep((),())
     for k in range(n_stmt):
@@ -174,6 +335,9 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
 
     # Check 2
     print('Checking (2)')
+    # print('GT', GT)
+    # print('H.pair(T) * GT:', H.pair(T) * GT)
+    # print('V.pair(V):', V.pair(V))    
     assert H.pair(T) * GT == V.pair(V)
 
     return True
@@ -188,18 +352,28 @@ if __name__ == '__main__':
     a_stmt = a[:n_stmt]
     print('U:', repr(U))
     print('a_stmt:', a_stmt)
-    print('nonzero in U:', np.sum(U == Fp(0)))
+    #print('nonzero in U:', np.sum(U == Fp(0)))
     print('m x n:', m * n)
 
     # Setup
-    print("Computing Setup...")
+    print("Computing Setup (optimized)...")
     CRS = babysnarkopt_setup(U, n_stmt)
     print("CRS length:", len(CRS))
 
     # Prover
-    print("Proving...")
+    print("Proving (optimized)...")
     H, Bw, Vw = babysnarkopt_prover(U, n_stmt, CRS, a)
 
     # Verifier
-    print("Verifying...")
+    print("[opt] Verifying (optimized)...")
     babysnarkopt_verifier(U, CRS, a[:n_stmt], (H, Bw, Vw))
+
+    if 0:
+        # Alternate prover
+        print("Proving (reference)...")
+        H_, Bw_, Vw_ = babysnark_prover(U.to_dense(), n_stmt, CRS, a)
+        assert (H_, Bw_, Vw_) == (H, Bw, Vw)
+
+        # Check that Proofs are verifiable by the reference verifier
+        print("Verifying (reference)...")
+        babysnark_verifier(U.to_dense(), CRS, a[:n_stmt], (H, Bw, Vw))
