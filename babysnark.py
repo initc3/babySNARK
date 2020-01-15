@@ -48,7 +48,7 @@ from ssbls12 import Fp, Poly, Group
 G = Group.G
 GT = Group.GT
 
-
+#| ## Choosing the evaluation domain
 #| Define some canonical roots $r_1,...,r_m$. These are public parameters
 #| and can be set arbitrarily, and in particular they don't depend on the
 #| circuit (though there must be enough of them to represent the problem
@@ -61,14 +61,14 @@ GT = Group.GT
 ROOTS = [Fp(i) for i in range(128)]
 
 
-#| Here we define the vanishing polynomial, which is a degree-$n$ polynomial
-#| that roots at the $n$ distinct locations given.
+#| Here we define the vanishing polynomial, which is a degree-$m$ polynomial
+#| that roots at the $m$ distinct locations given.
 def vanishing_poly(S):
     """
     args: 
-       S   (n vector)
+       S   (m vector)
     returns:
-       p(X) = (X-S1)*(X-S2)*...*(X-Sn)
+       p(X) = (X-S1)*(X-S2)*...*(X-Sm)
     """
     p = Poly([Fp(1)])
     for s in S:
