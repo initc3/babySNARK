@@ -163,7 +163,20 @@ def babysnarkopt_setup(U, n_stmt):
     CRS = [G * (tau ** i) for i in range(m+1)] + \
           [G * gamma, G * (beta * gamma)] + \
           [G * (beta * Ui(tau)) for Ui in Us[n_stmt:]]
-    return CRS
+
+    # Verification key
+    # Note: This is not considered part of the trusted setup, since it
+    # could be computed direcftly from the G * (tau **i) terms.
+
+    # Compute the target poly term
+    t = vanishing_poly(omega, m)
+    T = G * t(tau)
+
+    # Evaluate the Ui's corresponding to statement values
+    Uis = [G * Ui(tau) for Ui in Us[:n_stmt]]
+    VKey = Uis, T
+
+    return CRS, VKey
 
 
 # Prover
@@ -242,7 +255,7 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
 
 
 # Verifier
-def babysnarkopt_verifier(U, CRS, a_stmt, pi):
+def babysnarkopt_verifier(U, CRS, VKey, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
 
@@ -252,32 +265,10 @@ def babysnarkopt_verifier(U, CRS, a_stmt, pi):
     gammabeta = CRS[m+2]
     bUis = CRS[-(n-n_stmt):]
 
-    # Compute the target poly term
-    assert m & m - 1 == 0, "m must be a power of 2"
-    omega = omega_base ** (2**32 // m)
-    PolyEvalRep = polynomialsEvalRep(Fp, omega, m)
-    t = vanishing_poly(omega, m)
-    print('t:', t)
-    T = sum([taus[i] * t.coefficients[i] for i in range(m+1)], G*0)
-    
-    # Compute the polynomials from U
-    Us = []
-    for k in range(n):
-        xs = []
-        ys = []
-        for i in range(m):
-            if U[i,k] != 0:
-                xs.append(omega**i)
-                ys.append(U[i,k])
-        Us.append(PolyEvalRep(xs, ys))
+    Uis, T = VKey
 
     # Compute Vs and V = Vs + Vw
-    vs = PolyEvalRep((),())
-    for k in range(n_stmt):
-        vs += Us[k] * a[k]
-    vs = vs.to_coeffs()
-
-    Vs = sum([taus[i] * vs.coefficients[i] for i in range(m)], Group.G*0)
+    Vs = sum([Uis[i] * a[i] for i in range(n_stmt)], G * 0)
     V = Vs + Vw
 
     # Check 1
@@ -308,7 +299,7 @@ if __name__ == '__main__':
 
     # Setup
     print("Computing Setup (optimized)...")
-    CRS = babysnarkopt_setup(U, n_stmt)
+    CRS, VKey = babysnarkopt_setup(U, n_stmt)
     print("CRS length:", len(CRS))
 
     # Prover
@@ -317,9 +308,9 @@ if __name__ == '__main__':
 
     # Verifier
     print("[opt] Verifying (optimized)...")
-    babysnarkopt_verifier(U, CRS, a[:n_stmt], (H, Bw, Vw))
+    babysnarkopt_verifier(U, CRS, VKey, a[:n_stmt], (H, Bw, Vw))
 
-    if 0:  # Uncomment this to cross-check the optimized with the reference
+    if 1:  # Uncomment this to cross-check the optimized with the reference
         # Alternate prover
         print("Proving (reference)...")
         H_, Bw_, Vw_ = babysnark_prover(U.to_dense(), n_stmt, CRS, a)
