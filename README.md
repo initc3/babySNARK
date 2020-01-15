@@ -26,20 +26,25 @@ Components
  - [babysnark.py](babysnark.py): a succinct SNARK for square span programs
  - [babysnark_opt.py](babysnark_opt.py): improves on babysnark by using FFT optimizations,
      achieving quasilinear compute overhead
- - [finite-field/](finite-field/): a generic library for finite fields, and polynomials defined over them
+ - [finitefield/](finitefield/): a generic library for finite fields, and polynomials defined over them
      This library is adapted from posts by Jeremy Kun.
      See [A Programmer's Introudction to Mathematics](https://github.com/pim-book/programmers-introduction-to-mathematcs)
  and [Programming with Finite Fields](https://jeremykun.com/2014/03/13/programming-with-finite-fields/)
  - [polynomial_evalrep.py](polynomial_evalrep.py):
    -- an alternative polynomial abstraction, using evaluation at roots of unity, rather than coefficients.
- - finite-field/
  - `{babysnark,babysnark_opt,polynomial_evalrep}.ipynb`: the files are rendered in jupyter notebook form so they're more informative on github
 
 
 Setting up
 --
+This uses Python3. There are a few python dependencies, mainly `numpy` and `py_ecc`, an implementation of pairing cryptography including bls12-381.
 ```
 pip install -r requirements.txt
+```
+To run:
+```
+python babysnark.py
+python babysnark_opt.py
 ```
 
 To rebuild the jupyter notebooks:
