@@ -42,7 +42,7 @@ def vanishing_poly(omega, n):
 #|
 #| This representation is sparse - it only stores the non-zero values,
 #| so if it has lots of roots among the powers of omega,
-def _demo():
+def _sparse_poly_demo():
     PolyEvalRep = polynomialsEvalRep(Fp, omega, mpow2)
 
     # Example polynomial that has roots at most of the powers of omega
@@ -65,7 +65,7 @@ def _demo():
 
     # print('f_rep:', f_rep)
     # print('f:', f)
-_demo()
+_sparse_poly_demo()
 
 #| # Sparse representation of Square Constraint Systems
 #|
@@ -122,9 +122,9 @@ U, a = generate_solved_instance(m, n)
 print(U)
 print(U.to_dense())
 
-#| # Baby SNARK optimized implementation
-# Setup
+#| # Baby SNARK with quasilinear overhead
 
+# Setup
 def babysnarkopt_setup(U, n_stmt):
     (m, n) = U.shape
     assert n_stmt < n
@@ -319,7 +319,7 @@ if __name__ == '__main__':
     print("[opt] Verifying (optimized)...")
     babysnarkopt_verifier(U, CRS, a[:n_stmt], (H, Bw, Vw))
 
-    if 0:
+    if 0:  # Uncomment this to cross-check the optimized with the reference
         # Alternate prover
         print("Proving (reference)...")
         H_, Bw_, Vw_ = babysnark_prover(U.to_dense(), n_stmt, CRS, a)

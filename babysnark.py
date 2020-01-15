@@ -1,18 +1,29 @@
 #| # Baby SNARK (do do dodo dodo)
-#| A simple but expressive SNARK.
+#| _A simple but expressive SNARK._
+#|
+#| This is a self-contained development of SNARKs for NP. It is based on
+#| [Square Span Program SNARKs](https://eprint.iacr.org/2014/718) by Danezis et al.,
+#| which are expressive enough to encode boolean circuits.
+#|
+#| For detail about the algorithm, especially its security definition and soundness,
+#| proof, see [the acompanying paper](TODO: overleaf/eprint link).
+#|
+#| This implementation in this file is optimized for readability and simplicity, not
+#| performance. The result is that the proof is succinct, but the computation overhead
+#| of `Setup` and `Prove` is quadratic in the circuit size, rather than quasilinear.
+#| In `babysnark_opt.py` you can find a quasilinear implementation.
 
-#| ## Polynomial tools
-#| We start with a library for polynomials over finite fields, represented
-#| by coefficients. It includes:
+#| ## Polynomials library
+#| We start with a library, `finite_field/`, for polynomials over finite fields,
+#| represented by coefficients. The library includes:
 #|  - Constructing a polynomial from a list of coefficients
-#|  - Addition, scalar multiplication, multiplication of polynomials
+#|  - Addition, scaling, multiplication of polynomials
 #|  - Euclidean division of polynomials
 #|  - Lagrange interpolation of polynomials
 #|
-#|
-
-
-# Polynomials over finite fields
+#| The library is adapted from tutorials by Jeremy Kun.
+#| See [A Programmer's Introudction to Mathematics](https://github.com/pim-book/programmers-introduction-to-mathematics)
+#| and [Programming with Finite Fields](https://jeremykun.com/2014/03/13/programming-with-finite-fields/)
 from finitefield.finitefield import FiniteField
 from finitefield.polynomial import polynomialsOver
 
@@ -26,17 +37,22 @@ def _polydemo():
     # 1 + 2 t + 3 t^2 + 4 t^3 + 5 t^5
 _polydemo()
 
-#| ## Choosing a field and pairing-friendly curve
-#| Define concrete parameters and pairing-friendly group.
-#| We need a symmetric group, but the most readily available, bls12-381,
-#| See `py_ecc/` and `ssbls12.py` for details.
-# pairing : G x G -> GT
+#| ## Choosing a field and pairing-friendly elliptic curve
+#| We need to define a finite field to work with, that corresponds to the order
+#| of a pairing-friendly curve.
+#| To keep notation down to a minimum, BabySNARK is defined for a symmetric (Type-1)
+#| elliptic curve group, that is $pair : G \times G \rightarrow G_T$.
+#| However, since the most readily available curve, `bls12-381`, is asymmetric (Type-3),
+#| we write an adaptor for it. See `py_ecc/` and `ssbls12.py` for details.
 from ssbls12 import Fp, Poly, Group
-
 G = Group.G
 GT = Group.GT
 
-#| Define some canonical roots
+
+#| Define some canonical roots $r_1,...,r_m$. These are public parameters
+#| and can be set arbitrarily, and in particular they don't depend on the
+#| circuit (though there must be enough of them to represent the problem
+#| instance).
 # This is a global value.
 # Initializing it to 1,2,...,128 is enough for small examples in this file.
 # We'll overwrite it in `babysnark_setup` when a larger constraint system
@@ -45,8 +61,8 @@ GT = Group.GT
 ROOTS = [Fp(i) for i in range(128)]
 
 
-#| Here we define the vanishing polynomial, that has
-#| roots at the given points
+#| Here we define the vanishing polynomial, which is a degree-$n$ polynomial
+#| that roots at the $n$ distinct locations given.
 def vanishing_poly(S):
     """
     args: 
@@ -60,23 +76,27 @@ def vanishing_poly(S):
     return p
 
 
-#| ## Square Constraint Programs
-#| We'll represent square constraint programs using matrix-vector
+#| ## Square Constraint Systems
+#| We'll represent square constraint systems using matrix-vector
 #| multiplication.
-"""
-Square Constraint Program definition:
-  - U   (m x n  matrices)
-
-Witness definition (includes statement):
-   a         (n vector)
-
-Statement definition:
-   a_stmt    (l < n vector)
-
-Predicate to prove:
-    (Ua)^2 = 1
-    a[:l] = a_stmt
-"""
+#|
+#| The constraint system itself is defined by:
+#| - `U`$~~$  (an `m` $\times$ `n`  matrix)
+#|
+#| The witness (including the statement)
+#| - `a`$~~$   (an `n` vector)
+#|
+#| The statement is:
+#| - `a_stmt`    (an `n_stmt` size vector, where `n_stmt`<`n`)
+#|
+#| The predicate to prove is:
+#| - $(\!$ `U` $\!\cdot\!$ `a` $\!)^2 = 1$
+#| - `a[:n_stmt]`$ = $`a_stmt`
+#|
+#| The code below generates approximately random instances of Square
+#| Constraint Systems with a known solution. We'll use these for
+#| tests and examples, though in reality the problem instances would
+#| be generated from a circuit.
 
 # Use numpy to provide element-wise operations and fancy indexing
 import numpy as np
@@ -114,7 +134,8 @@ U, a = generate_solved_instance(10, 12)
 
 #| # Baby Snark
 #|
-#| Here we define the Setup, Prover, and Verifier
+#| Here we define the Setup, Prover, and Verifier. Follow along with
+#| the pseudocode from the [accompanying writeup](TODO: eprint/overleaf link)
 
 # Setup
 def babysnark_setup(U, n_stmt):
