@@ -164,7 +164,7 @@ def babysnarkopt_setup(U, n_stmt):
           [G * gamma, G * (beta * gamma)] + \
           [G * (beta * Ui(tau)) for Ui in Us[n_stmt:]]
 
-    # Verification key
+    # Precomputation
     # Note: This is not considered part of the trusted setup, since it
     # could be computed direcftly from the G * (tau **i) terms.
 
@@ -173,20 +173,22 @@ def babysnarkopt_setup(U, n_stmt):
     T = G * t(tau)
 
     # Evaluate the Ui's corresponding to statement values
-    Uis = [G * Ui(tau) for Ui in Us[:n_stmt]]
-    VKey = Uis, T
+    Uis = [G * Ui(tau) for Ui in Us]
+    precomp = Uis, T
 
-    return CRS, VKey
+    return CRS, precomp
 
 
 # Prover
-def babysnarkopt_prover(U, n_stmt, CRS, a):
+def babysnarkopt_prover(U, n_stmt, CRS, precomp, a):
     (m, n) = U.shape
     assert n == len(a)
     assert len(CRS) == (m + 1) + 2 + (n - n_stmt)
 
     taus = CRS[:m+1]
     bUis = CRS[-(n-n_stmt):]
+
+    Uis, T = precomp
 
     # Target is the vanishing polynomial
     mpow2 = m
@@ -207,14 +209,9 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
                 ys.append(U[i,k])
         Us.append(PolyEvalRep(xs, ys))
 
-    # First just the witness polynomial
-    vw = PolyEvalRep((),())
-    for k in range(n_stmt, n):
-        vw += Us[k] * a[k]
-
-    # Then the rest of the v polynomial
-    v = vw.__copy__()
-    for k in range(n_stmt):
+    # First compute v
+    v = PolyEvalRep((),())
+    for k in range(n):
         v += Us[k] * a[k]
 
     # Now we need to convert between representations to multiply and divide
@@ -235,16 +232,14 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
     H = sum([taus[i] * h.coefficients[i] for i in
              range(len(h.coefficients))], G*0)
 
-    # 3. Compute the Vw terms
-    vw = vw.to_coeffs()
-    Vw = sum([taus[i] * vw.coefficients[i] for i in range(m)], G*0)
+    # 3. Compute the Vw terms, using precomputed Uis
+    Vw = sum([Uis[k] * a[k] for k in range(n_stmt, n)], G*0)
     # assert G * vw(tau) == Vw
 
     # 4. Compute the Bw terms
     Bw = sum([bUis[k-n_stmt] * a[k] for k in range(n_stmt, n)], G*0)
     # assert G * (beta * vw(tau)) == Bw
 
-    # T = G * t(tau)
     # V = G * vv(tau)
     # assert H.pair(T) * GT == V.pair(V)
 
@@ -252,37 +247,6 @@ def babysnarkopt_prover(U, n_stmt, CRS, a):
     # print('Bw:', Bw)
     # print('Vw:', Vw)
     return H, Bw, Vw
-
-
-# Verifier
-def babysnarkopt_verifier(U, CRS, VKey, a_stmt, pi):
-    (m, n) = U.shape
-    (H, Bw, Vw) = pi
-
-    # Parse the CRS
-    taus = CRS[:m+1]
-    gamma = CRS[m+1]
-    gammabeta = CRS[m+2]
-    bUis = CRS[-(n-n_stmt):]
-
-    Uis, T = VKey
-
-    # Compute Vs and V = Vs + Vw
-    Vs = sum([Uis[i] * a[i] for i in range(n_stmt)], G * 0)
-    V = Vs + Vw
-
-    # Check 1
-    print('Checking (1)')
-    assert Bw.pair(gamma) == Vw.pair(gammabeta)
-
-    # Check 2
-    print('Checking (2)')
-    # print('GT', GT)
-    # print('H.pair(T) * GT:', H.pair(T) * GT)
-    # print('V.pair(V):', V.pair(V))    
-    assert H.pair(T) * GT == V.pair(V)
-
-    return True
 
 #-
 if __name__ == '__main__':
@@ -294,28 +258,24 @@ if __name__ == '__main__':
     a_stmt = a[:n_stmt]
     print('U:', repr(U))
     print('a_stmt:', a_stmt)
-    #print('nonzero in U:', np.sum(U == Fp(0)))
     print('m x n:', m * n)
 
     # Setup
     print("Computing Setup (optimized)...")
-    CRS, VKey = babysnarkopt_setup(U, n_stmt)
+    CRS, precomp = babysnarkopt_setup(U, n_stmt)
     print("CRS length:", len(CRS))
 
     # Prover
     print("Proving (optimized)...")
-    H, Bw, Vw = babysnarkopt_prover(U, n_stmt, CRS, a)
+    H, Bw, Vw = babysnarkopt_prover(U, n_stmt, CRS, precomp, a)
+
+    if 0:  # Uncomment this to cross-check the optimized with the reference
+        # Alternate prover
+        print("Proving (reference)...")
+        H_, Bw_, Vw_ = babysnark_prover(U.to_dense(), n_stmt, CRS, precomp, a)
+        assert (H_, Bw_, Vw_) == (H, Bw, Vw)
 
     # Verifier
     print("[opt] Verifying (optimized)...")
-    babysnarkopt_verifier(U, CRS, VKey, a[:n_stmt], (H, Bw, Vw))
+    babysnark_verifier(U, CRS, precomp, a[:n_stmt], (H, Bw, Vw))
 
-    if 1:  # Uncomment this to cross-check the optimized with the reference
-        # Alternate prover
-        print("Proving (reference)...")
-        H_, Bw_, Vw_ = babysnark_prover(U.to_dense(), n_stmt, CRS, a)
-        assert (H_, Bw_, Vw_) == (H, Bw, Vw)
-
-        # Check that Proofs are verifiable by the reference verifier
-        print("Verifying (reference)...")
-        babysnark_verifier(U.to_dense(), CRS, a[:n_stmt], (H, Bw, Vw))

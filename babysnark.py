@@ -160,11 +160,24 @@ def babysnark_setup(U, n_stmt):
     CRS = [G * (tau ** i) for i in range(m+1)] + \
           [G * gamma, G * (beta * gamma)] + \
           [G * (beta * Ui(tau)) for Ui in Us[n_stmt:]]
-    return CRS
+
+    # Precomputation
+    # Note: This is not considered part of the trusted setup, since it
+    # could be computed direcftly from the G * (tau **i) terms.
+
+    # Compute the target poly term
+    t = vanishing_poly(ROOTS[:m])
+    T = G * t(tau)
+
+    # Evaluate the Ui's corresponding to statement values
+    Uis = [G * Ui(tau) for Ui in Us]
+    precomp = Uis, T
+
+    return CRS, precomp
 
 
 # Prover
-def babysnark_prover(U, n_stmt, CRS, a):
+def babysnark_prover(U, n_stmt, CRS, precomp, a):
     (m, n) = U.shape
     assert n == len(a)
     assert len(CRS) == (m + 1) + 2 + (n - n_stmt)
@@ -174,6 +187,8 @@ def babysnark_prover(U, n_stmt, CRS, a):
     taus = CRS[:m+1]
     bUis = CRS[-(n-n_stmt):]
 
+    Uis, T = precomp
+
     # Target is the vanishing polynomial
     t = vanishing_poly(ROOTS[:m])
     
@@ -182,14 +197,9 @@ def babysnark_prover(U, n_stmt, CRS, a):
 
     # 1. Find the polynomial p(X)
 
-    # First just the witness polynomial (we'll use it later)
-    vw = Poly([])
-    for k in range(n_stmt, n):
-        vw += Us[k] * a[k]
-
-    # Then the rest of the v polynomial
-    v = Poly(vw)
-    for k in range(n_stmt):
+    # First compute v
+    v = Poly([])
+    for k in range(n):
         v += Us[k] * a[k]
 
     # Finally p
@@ -198,20 +208,20 @@ def babysnark_prover(U, n_stmt, CRS, a):
     # 2. Compute the H term
     # Find the polynomial h by dividing p / t
     h = p / t
+    # assert p == h * t
 
     H = sum([taus[i] * h.coefficients[i] for i in
              range(len(h.coefficients))], G*0)
 
-    # 3. Compute the Vw terms
-    Vw = sum([taus[i] * vw.coefficients[i] for i in range(m)], G*0)
+    # 3. Compute the Vw terms, using precomputed Uis
+    Vw = sum([Uis[k] * a[k] for k in range(n_stmt, n)], G*0)
     # assert G * vw(tau) == Vw
 
     # 4. Compute the Bw terms
     Bw = sum([bUis[k-n_stmt] * a[k] for k in range(n_stmt, n)], G*0)
     # assert G * (beta * vw(tau)) == Bw
 
-    # T = G * t(tau)
-    # V = G * vv(tau)
+    # V = G * v(tau)
     # assert H.pair(T) * GT == V.pair(V)
 
     # print('H:', H)
@@ -221,7 +231,7 @@ def babysnark_prover(U, n_stmt, CRS, a):
 
 
 # Verifier
-def babysnark_verifier(U, CRS, a_stmt, pi):
+def babysnark_verifier(U, CRS, precomp, a_stmt, pi):
     (m, n) = U.shape
     (H, Bw, Vw) = pi
     assert len(ROOTS) >= m
@@ -232,20 +242,11 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
     gamma = CRS[m+1]
     gammabeta = CRS[m+2]
     bUis = CRS[-(n-n_stmt):]
-
-    # Compute the target poly term
-    t = vanishing_poly(ROOTS[:m])
-    T = sum([taus[i] * t.coefficients[i] for i in range(m+1)], G*0)
     
-    # Convert the basis polynomials Us to coefficient form by interpolating
-    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
+    Uis, T = precomp
     
     # Compute Vs and V = Vs + Vw
-    vs = Poly([0])
-    for k in range(n_stmt):
-        vs += a_stmt[k] * Us[k]
-
-    Vs = sum([taus[i] * vs.coefficients[i] for i in range(m)], Group.G*0)
+    Vs = sum([Uis[k] * a_stmt[k] for k in range(n_stmt)], G * 0)
     V = Vs + Vw
 
     # Check 1
@@ -254,9 +255,10 @@ def babysnark_verifier(U, CRS, a_stmt, pi):
 
     # Check 2
     print('Checking (2)')
-    #print('GT', GT)
-    #print('H.pair(T) * GT:', H.pair(T) * GT)
-    #print('V.pair(V):', V.pair(V))
+    # print('GT', GT)
+    # print('V:', V)
+    # print('H.pair(T) * GT:', H.pair(T) * GT)
+    # print('V.pair(V):', V.pair(V))
     assert H.pair(T) * GT == V.pair(V)
 
     return True
@@ -276,13 +278,13 @@ if __name__ == '__main__':
 
     # Setup
     print("Computing Setup...")
-    CRS = babysnark_setup(U, n_stmt)
+    CRS, precomp = babysnark_setup(U, n_stmt)
     print("CRS length:", len(CRS))
 
     # Prover
     print("Proving...")
-    H, Bw, Vw = babysnark_prover(U, n_stmt, CRS, a)
+    H, Bw, Vw = babysnark_prover(U, n_stmt, CRS, precomp, a)
 
     # Verifier
     print("Verifying...")
-    babysnark_verifier(U, CRS, a[:n_stmt], (H, Bw, Vw))
+    babysnark_verifier(U, CRS, precomp, a[:n_stmt], (H, Bw, Vw))
