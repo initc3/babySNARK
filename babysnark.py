@@ -6,7 +6,7 @@
 #| which are expressive enough to encode boolean circuits.
 #|
 #| For detail about the algorithm, especially its security definition and soundness,
-#| proof, see [the acompanying paper](TODO: overleaf/eprint link).
+#| proof, see [the acompanying paper](https://www.overleaf.com/read/rbfbjxzmjwzq)
 #|
 #| This implementation in this file is optimized for readability and simplicity, not
 #| performance. The result is that the proof is succinct, but the computation overhead
@@ -135,7 +135,7 @@ U, a = generate_solved_instance(10, 12)
 #| # Baby Snark
 #|
 #| Here we define the Setup, Prover, and Verifier. Follow along with
-#| the pseudocode from the [accompanying writeup](TODO: eprint/overleaf link)
+#| the pseudocode from the [accompanying writeup](https://www.overleaf.com/read/rbfbjxzmjwzq)
 
 
 # Evaluate a polynomial in exponent
