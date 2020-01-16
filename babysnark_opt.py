@@ -199,20 +199,11 @@ def babysnarkopt_prover(U, n_stmt, CRS, precomp, a):
     t = vanishing_poly(omega, mpow2)
     
     # 1. Find the polynomial p(X)
-    Us = []
-    for k in range(n):
-        xs = []
-        ys = []
-        for i in range(m):
-            if U[i,k] != 0:
-                xs.append(omega**i)
-                ys.append(U[i,k])
-        Us.append(PolyEvalRep(xs, ys))
 
     # First compute v
     v = PolyEvalRep((),())
-    for k in range(n):
-        v += Us[k] * a[k]
+    for (i,k), y in U.items():
+        v += PolyEvalRep((ROOTS[i],), (a[k] * y,)) * a[k]
 
     # Now we need to convert between representations to multiply and divide
     PolyEvalRep2 = polynomialsEvalRep(Fp, omega2, 2*mpow2)
