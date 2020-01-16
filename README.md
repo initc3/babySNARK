@@ -8,7 +8,7 @@ which are expressive enough to encode boolean circuits.
 
 This code accompanies a tutorial on defining and analyzing the security
 of a SNARK, focusing on the soundness proof.
-[(Read it on overleaf.)](https://www.overleaf.com/read/rbfbjxzmjwzq)
+[(writeup.)](https://github.com/initc3/babysnark/babysnark.pdf)
 
 Recommended usage
 --
@@ -17,7 +17,7 @@ It's not efficient overall compared to state-of-the-art SNARK implementations, i
 It does, however, demonstrate some important SNARK design concepts and algorithm optimizations. It's succinct: the proof is constant size, and verifying it depends only on the size of statement, not the circuit and witness.
 It also achieves quasilinear overhead, through the use of FFT-based optimizations.
 
-So, use it to study how SNARKs can be implemented, and to check your understanding of the [accompanying tutorial](https://www.overleaf.com/read/rbfbjxzmjwzq)
+So, use it to study how SNARKs can be implemented, and to check your understanding of the [accompanying tutorial](https://github.com/initc3/babysnark/babysnark.pdf)
 As a project, consider extending this library to implement additional optimizations or protocol variants.
 This may also be useful in development for prototyping and reference implementations.
 
