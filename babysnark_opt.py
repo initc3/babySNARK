@@ -203,7 +203,7 @@ def babysnarkopt_prover(U, n_stmt, CRS, precomp, a):
     # First compute v
     v = PolyEvalRep((),())
     for (i,k), y in U.items():
-        v += PolyEvalRep((ROOTS[i],), (a[k] * y,)) * a[k]
+        v += PolyEvalRep((ROOTS[i],), (y,)) * a[k]
 
     # Now we need to convert between representations to multiply and divide
     PolyEvalRep2 = polynomialsEvalRep(Fp, omega2, 2*mpow2)
@@ -220,8 +220,7 @@ def babysnarkopt_prover(U, n_stmt, CRS, precomp, a):
     # assert p == h * t
 
     # 2. Compute the H term
-    H = sum([taus[i] * h.coefficients[i] for i in
-             range(len(h.coefficients))], G*0)
+    H = evaluate_in_exponent(taus, h)
 
     # 3. Compute the Vw terms, using precomputed Uis
     Vw = sum([Uis[k] * a[k] for k in range(n_stmt, n)], G*0)

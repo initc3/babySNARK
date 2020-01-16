@@ -137,6 +137,20 @@ U, a = generate_solved_instance(10, 12)
 #| Here we define the Setup, Prover, and Verifier. Follow along with
 #| the pseudocode from the [accompanying writeup](TODO: eprint/overleaf link)
 
+
+# Evaluate a polynomial in exponent
+def evaluate_in_exponent(powers_of_tau, poly):
+    # powers_of_tau:
+    #    [G*0, G*tau, ...., G*(tau**m)]
+    # poly:
+    #    degree-m bound polynomial in coefficient form
+    print('P.degree:', poly.degree())
+    print('taus:', len(powers_of_tau))
+    assert poly.degree()+1 < len(powers_of_tau)
+    return sum([powers_of_tau[i] * poly.coefficients[i] for i in
+                range(poly.degree()+1)], G*0)
+
+
 # Setup
 def babysnark_setup(U, n_stmt):
     (m, n) = U.shape
@@ -191,11 +205,11 @@ def babysnark_prover(U, n_stmt, CRS, precomp, a):
 
     # Target is the vanishing polynomial
     t = vanishing_poly(ROOTS[:m])
-    
-    # Convert the basis polynomials Us to coefficient form by interpolating
-    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
 
     # 1. Find the polynomial p(X)
+
+    # Convert the basis polynomials Us to coefficient form by interpolating
+    Us = [Poly.interpolate(ROOTS[:m], U[:,k]) for k in range(n)]
 
     # First compute v
     v = Poly([])
@@ -210,8 +224,7 @@ def babysnark_prover(U, n_stmt, CRS, precomp, a):
     h = p / t
     # assert p == h * t
 
-    H = sum([taus[i] * h.coefficients[i] for i in
-             range(len(h.coefficients))], G*0)
+    H = evaluate_in_exponent(taus, h)
 
     # 3. Compute the Vw terms, using precomputed Uis
     Vw = sum([Uis[k] * a[k] for k in range(n_stmt, n)], G*0)
