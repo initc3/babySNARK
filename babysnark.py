@@ -6,7 +6,7 @@
 #| which are expressive enough to encode boolean circuits.
 #|
 #| For detail about the algorithm, especially its security definition and soundness,
-#| proof, see [the acompanying paper](https://github.com/initc3/babysnark/babysnark.pdf)
+#| proof, see [the acompanying paper](https://github.com/initc3/babySNARK/blob/master/babysnark.pdf)
 #|
 #| This implementation in this file is optimized for readability and simplicity, not
 #| performance. The result is that the proof is succinct, but the computation overhead
@@ -135,7 +135,7 @@ U, a = generate_solved_instance(10, 12)
 #| # Baby Snark
 #|
 #| Here we define the Setup, Prover, and Verifier. Follow along with
-#| the pseudocode from the [accompanying writeup](https://github.com/initc3/babysnark/babysnark.pdf)
+#| the pseudocode from the [accompanying writeup](https://github.com/initc3/babySNARK/blob/master/babysnark.pdf)
 
 
 # Evaluate a polynomial in exponent
