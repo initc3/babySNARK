@@ -143,15 +143,10 @@ def babysnarkopt_setup(U, n_stmt):
         ROOTS += [omega**i for i in range(m)]
 
     # Generate polynomials u from columns of U
-    Us = []
-    for k in range(n):
-        xs = []
-        ys = []
-        for i in range(m):
-            if U[i,k] != 0:
-                xs.append(omega**i)
-                ys.append(U[i,k])
-        Us.append(PolyEvalRep(xs, ys))
+    Us = [PolyEvalRep((), ()) for _ in range(n)]
+    for (i,k), y in U.items():
+        x = ROOTS[i]
+        Us[k] += PolyEvalRep([x],[y])
 
     # Trapdoors
     global tau, beta, gamma
@@ -203,7 +198,8 @@ def babysnarkopt_prover(U, n_stmt, CRS, precomp, a):
     # First compute v
     v = PolyEvalRep((),())
     for (i,k), y in U.items():
-        v += PolyEvalRep((ROOTS[i],), (y,)) * a[k]
+        x = ROOTS[i]
+        v += PolyEvalRep([x], [y]) * a[k]
 
     # Now we need to convert between representations to multiply and divide
     PolyEvalRep2 = polynomialsEvalRep(Fp, omega2, 2*mpow2)
