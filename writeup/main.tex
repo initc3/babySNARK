@@ -1,0 +1,546 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath} % Required for some math elements 
+\usepackage{amsfonts}
+\usepackage{amsthm} % for proof pkg
+\usepackage{amssymb}
+\usepackage{verbatim}
+\usepackage{hyperref}
+\usepackage{comment}
+\usepackage{color}
+\usepackage{parskip} % Remove paragraph indentation
+\usepackage[margin=1in]{geometry}
+\usepackage[inline]{enumitem}
+\usepackage{mathtools}
+\usepackage{multirow}
+
+\newtheorem{lemma}{Lemma}
+\newtheorem{claim}{Claim}
+\newtheorem{theorem}{Theorem}
+ 
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[section]
+\newtheorem{fact}{Fact}[section]
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\anote}[1]{{\color{magenta} [AM: #1]}}
+\newcommand{\Gen}{\mathsf{Gen}}
+\newcommand{\Enc}{\mathsf{Enc}}
+\newcommand{\Dec}{\mathsf{Dec}}
+\newcommand{\pk}{\mathit{pk}}
+\newcommand{\sk}{\mathit{sk}}
+\newcommand{\bbZ}{\mathbb{Z}}
+\newcommand{\bit}{\{0,1\}}
+\newcommand{\la}{\leftarrow}
+\newcommand{\ninN}{{n \in \mathbf{N}}}
+\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cG}{\mathcal{G}}
+\newcommand{\RF}{\mathsf{RF}}
+\newcommand{\Half}{\frac{1}{2}}
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\Adv}{\mathcal{A}}
+\newcommand{\Ext}{\mathcal{E}}
+
+\newcommand{\ignore}[1]{{}}
+
+\newcommand{\samples}{\overset{\$}{\leftarrow}}
+\newcommand{\hash}{\ensuremath{\mathcal{H}}}
+\newcommand{\doubleplus}{+\kern-1.3ex+\kern0.8ex}
+\newcommand{\mdoubleplus}{\ensuremath{\mathbin{+\mkern-10mu+}}}
+
+\title{Baby SNARK (do do dodo dodo)}
+\author{Andrew Miller \and Ye Zhang \and Sanket Kanjalkar}
+\date{\today\footnote{This document may be updated frequently. Check \url{https://github.com/initc3/babySNARK} for updates.}}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+
+
+SNARKs, or verifiable computation, are some of the most important cryptographic techniques, widely used in blockchains and other secure distributed systems. They're very expressive, and offer a seemingly impossible performance promise: \emph{Verify any computation in constant time!}
+However, SNARKs have also earned a reputation as "magic moon math." At least, they're somewhat more complicated than, say, public key signatures.
+%
+There are already many excellent SNARK tutorials out there~\cite{nitulescugentle,petkus2019and}, and this one is meant to be complementary. Our goals are:
+\begin{itemize}
+    \item \emph{Give a self-contained definition of the simplest possible SNARK that still shows off the ``magic."} The SNARK we've selected, based on Square Span Programs due to Danezis et al~\cite{squarespan}, is expressive enough to represent arbitrary boolean circuits and includes a fully succinct proof and verifier.
+    
+    \item \emph{Demystify the SNARK's soundness proof.}
+       We've already seen vulnerabilities in real-life SNARK deployments due to inadequate soundness
+       proofs~\cite{gabizon2019security,parnounsoundness}.
+       We've also noticed that existing tutorials, especially ones geared towards engineers, run out of steam by the time they arrive at this step.
+       By simplifying the soundness proof and walking through it in detail, we hope to instill in readers the confidence to understand and validate the soundness proofs of other SNARKs as well. 
+    
+    \item \emph{Build a clear connection from the on-paper construction to the implementation in code.}
+       As SNARKs are rapidly transitioning to practice and the focus is shifting to finer grained optimizations, state-of-the-art implementations are increasingly complicated to follow.
+       This tutorial is accompanied by a codebase \url{https://github.com/initc3/babySNARK}
+       that follows the on-paper definition very closely, so it can serve as a study guide to learn how SNARKs work and as a prototyping tool for SNARK researchers.
+       The codebase includes 1) a naive implementation that has roughly cubic computation overhead for the prover and setup routines, as well as 2) an implementation with quasilinear overhead using FFT and sparse matrix optimizations.
+
+\end{itemize}
+
+\paragraph{Other differences between this tutorial and others.} 
+Since our focus is on simplifying the soundness proof, we ignore extra features like zero-knowledge hiding of the witness. In other words, we focus just on SNARKs, not zk-SNARKs.
+
+To further cut down on notation clutter, we present our SNARK using symmetric (Type 1) bilinear groups. For performance, asymmetric (Type 2 or Type 3) bilinear groups are preferred.
+
+The constraint system we describe, while expressive enough to embed boolean circuits, is not as concretely efficient as its generalization, \emph{Rank-1 Constraint System}; for our purposes, we prefer it simply because it reduces the number of matrices to keep track of from three to one.
+
+Other presentations carry around a constant $a_0=1$ term, separately from the statement $a_1,\dots,a_\ell$; since this can just be included in the statement, we elide this to save a few symbols.
+
+Our soundness proof is in the Algebraic Group Model~\cite{fuchsbauer2018algebraic}. Proofs in this setting are simpler than in the standard model using knowledge-of-exponent assumptions. We help shed light on the nature of such proofs by formalizing a generic step (reduction to q-DLOG) that is reusable for many other SNARK variants as well.
+
+\section{Preliminaries}
+
+\paragraph{Polynomials over finite fields.}
+BabySNARK, along with most of the SNARK protocols we know of, makes extensive use of polynomials over prime-order finite fields.
+Assume we are working in a finite field $\F_p$ of prime order $p$.
+For background on finite fields and polynomials, as well as their implementations, we recommend Kun, Ch. 2~\cite{pim,primer}. Our BabySNARK implementation uses the code provided with these references as a library.
+Here we recall a bit of notation and facts about polynomials.
+
+
+\theoremstyle{definition}
+\begin{definition}[Coefficient Representation]
+A degree-$k$ bound polynomial $\phi(X) : \F_p \rightarrow \F_p$ is represented by $k+1$ coefficients $\{a_i\}_i$, such that $f(X) = a_0 + a_1X + ... + a_k X^k$.
+\end{definition}
+\begin{definition}[Evaluation Representation]
+A degree-$k$ bound polynomial can alternatively be represented by $k+1$ or more values $\{y_i\}_i$, corresponding to evaluations of $\phi$ at fixed distinct locations $\{x_i\}_i$. These locations are called the \emph{evaluation domain}.
+\end{definition}
+
+We can convert between these two representations through Lagrange interpolation, or through FFT as we'll explain later.
+Some operations, including polynomial multiplication and division, can be computed more efficiently in the evaluation representation. Other times, however, it's necessary to work with the coefficient representation. We'll see this later on, for example, when the Prover evaluates a polynomial at an encrypted location.
+
+\begin{fact}
+Multiplying a degree-$k_1$ bound polynomial by a degree-$k_2$ bound polynomial results in a degree-$(k_1+k_2)$ bound polynomial.
+\end{fact}
+\begin{fact}[Factor Theorem]
+If a degree-$k$ bound polynomial $p(X)$ has distinct roots at $(r_1,r_2...r_m)$, then it is divisible by $t(X) = (X-r_1)(X-r_2),...,(X-r_m)$.
+In other words, $p(X) = t(X) \cdot h(X)$ for some degree-$(k-m)$ bound polynomial $h(X)$.
+We also write this as
+\[
+   p(X) \equiv 0 \mod t(X).
+\]
+\end{fact}
+\begin{fact}
+Given a degree-$k$ polynomial over a finite field, we can solve for its roots in time polynomial in $k$.
+\end{fact}
+
+\paragraph{Bilinear groups}
+Let $\mathcal{G}$ be an additive group, with $G$ a generator.
+We will use additive notation, just so that more of the math can be written in the same size font.
+We will use the notation $\left[a, b, ..., z\right]_G$ to mean $(aG, bG, ..., cG)$, as a way of visually distinguishing group elements from field elements.
+
+\begin{definition}
+A cyclic group $\mathcal{G}$ is bilinear if we have an efficiently computable pairing function, $e : \mathcal{G} \times \mathcal{G} \rightarrow \mathcal{G}_T$ for some target group $G_T$ of the same order, such that 
+    $$e( \left[a\right]_G, \left[b\right]_G) = e(g,g)^{a,b}$$
+and that $e(G,G)$ is a generator of the target group.
+\end{definition}
+
+The form we have written above is more precisely called a symmetric, or \emph{Type 1}, bilinear group; in general, we have may have two distinct source groups, $e : \mathcal{G}_1 \times \mathcal{G_2} \rightarrow \mathcal{G}_T$.
+
+\section{Square Span Programs}
+
+\paragraph{Square Constraint Systems}
+A square constraint system is defined by a matrix $U : \F^{m \times n}$. 
+A vector $\vec{a} : \F^n$ is a solution to this system if
+\begin{equation}
+\label{eqn:ua2}
+ \left( U \vec{a} \right)\circ\left( U \vec{a} \right) = \vec{1},
+\end{equation}
+
+where $\circ$ represents the Hadamard (element-wise) product. We will also write $(U\vec{a})\circ(U\vec{a})$ as $(U\vec{a})^2$.
+
+When we fix a prefix of this vector, the statement $\vec{a}_\textsf{stmt} : \F^{\ell}$ for $\ell < n$, then the constraint matrix $U$ defines a predicate, such that a witness $\vec{a}_\textsf{wit} : \F^{n-\ell}$ satisfies the predicate if $\vec{a} = [\vec{a}_\textsf{stmt};~\vec{a}_\textsf{wit}]^\intercal$ is a solution.
+
+\paragraph{Encoding Boolean Circuits}
+The Square Constraint System defined above is NP-complete, in the sense that it can easily be used to encode any Boolean circuit satisfiability problem. Consider a Boolean circuit of fan-in 2. Each wire in the circuit is represented by an element of the solution vector.
+
+First, we show that we can express constraints such that an element $a$ in the solution vector is either $0$ or $1$. Notice that
+\[
+(2a-1)^2 = 1
+\]
+implies $(2a-1) \in \{-1,1\}$, which implies $a \in \{0,1\}$. Next, observe that if $a$,$b$,$c$ are all constrained to lie in $\{0,1\}$, then we can express $c = \neg (a \land b) = \textsf{NAND}(a,b)$ as
+ \[
+    (2 a + 2 b -5c + 4)^2 = 1.
+ \]
+Putting these together as an example, a square constraint program including the above wires and gates would take the form
+ \[
+ \left(\begin{bmatrix} 
+    -1 & 2 & & &  \\
+    -1 &  & 2 & & \dots \\
+    -1 &  & & 2 &  \\
+     4 & 2 & 2 & -5 &  \\
+    \vdots & & & & \ddots\\
+    \end{bmatrix} \cdot
+      \begin{bmatrix}
+    1 \\ 
+       a \\
+       b \\
+       c \\
+       \vdots
+       \end{bmatrix}\right)^2 = \vec{1}.
+\]
+While $\textsf{NAND}$ gates alone suffice to show that any Boolean circuit can be represented, other gates can also be encoded directly~\cite{squarespan}.
+
+\paragraph{From Square Constraint Systems to Square Span Programs}
+So far we've described a constraint system in terms of matrix multiplication.
+For the SNARK protocol, we need to translate this problem into one about polynomials.
+%
+To start, we treat the columns of $U$ as poynomials in the evaluation representation.
+More specifically, let $u_0(X),u_1(X),...,u_{n-1}(X)$ be the degree $m-1$ polynomials defined through interpolation using each column of $U$, such that
+    $$u_i(r_j)=U_{j,i}.$$
+Then we have that (\ref{eqn:ua2}) is equivalent to the following:
+\begin{equation}
+\label{eqn:span}
+\displaystyle \forall r_j. ~ \left(\sum_{i=0}^{n-1} a_i u_i(r_j) \right)^2 - 1 = 0.
+\end{equation}
+
+Now, recall from Fact 2.2, that if this polynomial it has roots at all of the $\{r_j\}$, then it is divisible by the vanishing polynomial on $\{r_j\}_j$.
+Hence this is equivalent to the Square Span Program,
+\begin{equation}
+ \left(\sum_{i=0}^{n-1} a_i u_i(X) \right)^2 - 1 \equiv 0 \,\, \mod \,\, t(X)
+\end{equation}
+
+This is the form we'll use in our SNARK protocol description.
+Square Span Programs can also be defined more generally, in terms of an arbitrary $t(X)$, although for us this will always be the vanishing polynomial~\cite{squarespan}.
+
+\paragraph{Comparison with R1CS}
+The Square Constraint System is a special case of the Rank-1 Constraint System commonly used.
+While Square Constraint Systems are defined by one constraint matrix $U$, Rank-1 Constraint Systems are defined three $(U,V,W)$. 
+That is, instead of $\left(U\vec{a}\right)^2=\vec{1}$, we have $U\vec{a} \circ V\vec{a} = W\vec{a}$. 
+While both suffice for embedding boolean circuits, representing one bit per field element, with R1CS we can also represent arithmetic circuits that can compute some programs much more efficiently.
+
+\section{Soundness definition for SNARKs in the Algebraic Group Model} 
+A SNARK for Square Span Programs (SSP) consists of three algorithms,
+
+\begin{itemize}
+    \item $\sigma \leftarrow \textsf{Setup}(U)$ generates the public parameters $\sigma$ from a SSP constraint matrix $U$.
+    \item $\pi \leftarrow \textsf{Prove}(\sigma, \vec{a}_{\textsf{stmt}}, \vec{a}_{\textsf{wit}})$ takes a statement and witness and produces a proof $\pi$
+    \item $\{0,1\} \leftarrow \textsf{Verify}(\sigma, \vec{a}_{\textsf{stmt}}, \pi)$ checks a proof
+\end{itemize}
+
+The main security goal for a SNARK is soundness, roughly that if $\textsf{Verify}(\sigma,\vec{a}_{\textsf{stmt}},\pi)=1$, then there exists some satisfying witness $\vec{a}_\textsf{wit}$.
+A knowledge-soundness definition (the K in SNARK) is actually even stronger, and says that if an adversary can produce a valid proof, then the adversary must \emph{know} the witness. This is formally captured by stating that for any adversary $\Adv$ producing such a proof, we can construct an extractor $\Ext$ that produces the witness.
+
+\paragraph{Algebraic Group Model}
+We give our security proof in the Algebraic Group Model (AGM)~\cite{fuchsbauer2018algebraic}, because it leads to the simplest statements and proofs.
+In the AGM, we say that an adversary that outputs group elements must also explain where these came from, as a linear combination $\textsf{alg}$ of group elements the adversary has previously seen.
+One reason this model simplifies our security proof is that we can use a single discrete-log style reduction target, $q$-DLOG, for proving the soundness of most SNARKs, rather than variations of Knowledge-of-Exponent and Diffie-Hellman assumptions as in earlier proofs.
+
+% TOOD: more detail. Why algebraic group model is justified?
+
+\paragraph{Knowledge Soundness}
+The following attack game lets the adversary choose both the statement and the proof, and the attack only succeeds if the corresponding extractor fails to find the witness.
+
+  \[
+  \textsf{Adv}^{\textsc{Knwl-Sound}}_{k,\textsf{Setup},\textsf{Verify}}(V, \Adv, \Ext) =
+  \Pr \left[
+    \begin{aligned}
+    \sigma \leftarrow \textsf{Setup($V$)}\\
+    \vec{a}_{\textsf{stmt}}, \pi, \textsf{alg} \leftarrow \Adv(\sigma)\\
+    \vec{a}_{\textsf{wit}} \leftarrow \Ext(\textsf{alg}) \\
+    \hline  ~\\[-13pt]
+    \textsf{Verify}(\sigma, \vec{a}_\textsf{stmt}, \pi) ~\land \\
+    \left( V\cdot \left( \vec{a}_{\textsf{stmt}} \mdoubleplus \vec{a}_\textsf{wit} \right)^\intercal \right)^2 \neq \vec{1} 
+    \end{aligned}
+  \right]
+  \]
+
+\begin{definition}[Knowledge Soundness]
+Putting these together, A SNARK is knowledge sound if $\forall \Adv$, there exists an extractor $\Ext$, such that the advantage  $\textsf{Adv}^{\textsc{Knwl-Sound}}_{k,\textsf{Setup},\textsf{Verify}}(V, \Adv, \Ext)$ game is negligible in the size of the field.
+\end{definition}
+
+\section{Baby SNARK}
+We now discuss the BabySNARK protocol, defined in Figure~\ref{fig:babysnark}
+and discuss it below.
+
+\begin{figure}[ht]
+\textbf{Setup}($1^\lambda,\{u_i\}_{i \ge 0}$) : 
+
+\begin{itemize}
+    \item[] $\tau,{\color{red}\beta},{\color{blue}\gamma} \xleftarrow{\$} \F^3$
+\item[]CRS $\sigma := \,\, 
+                        \left[ %
+                         1, \tau,...,{\tau}^m,\,\, {\color{blue}\gamma},\,\,
+                         {\color{blue}\gamma}
+                         {\color{red}\beta},\,\, 
+                       \{{\color{red}\beta} u_i(\tau)\}_{i \ge \ell} \,
+                       \right]_G
+                      $
+   \item[] Precompute $\left[ t(\tau), \{ u_i(\tau) \}_{i \ge 0} \right]_G$
+\end{itemize}
+\textbf{Prove}($\sigma, \vec{a}$):
+\begin{itemize}[parsep=2pt]
+\item[] $h(X) :=  \left(\left({\sum_{i\ge 0} a_i u_i(X)}\right)^2 - 1\right) / \, {t(X)}$
+\item[] $H := \left[ h(\tau) \right]_G$
+\item[] $V_w :=  \sum_{i \ge \ell} a_i \left[u_i(\tau) \right]_G$
+\item[] $B_w :=  \sum_{i \ge \ell} a_i \left[ {\color{red}\beta} u_i(\tau) \right]_G$
+\item[]  $\pi := (H,V_w,B_w)$
+\end{itemize}
+
+\textbf{Verify}($\sigma, \vec{a}_\textsf{stmt}=\{a_i\}_{i<\ell}, \pi$):
+\begin{itemize}[parsep=2pt]
+\item[] $V_s := \sum_{i<\ell} a_i \left[ u_i(\tau) \right]_G$
+\item[] $V := V_s + V_w$
+\item[] $e(H,\left[ t(\tau) \right]_G) \,\, e(g,g) \overset{?}{=} e(V,V)$
+\item[] $e(B_w, \left[ {\color{blue}\gamma} \right]_G) \overset{?}{=} e( \left[ {\color{blue}\gamma} {\color{red}\beta} \right]_G, V_w)$
+\end{itemize}
+\caption{BabySNARK protocol definition}
+\label{fig:babysnark}
+\end{figure}
+
+\textbf{Note on indexing}
+There are three kinds of indexing that occur. To keep the clutter down, we abbreviate them, but explain more clearly here:
+\begin{itemize}
+  \item Just the statement elements $_{i<\ell}$, could be written more verbosely as $_{i=0}^{n-1}$
+  \item Just the witness elements $_{i\ge\ell}$, more verbosely $_{i=\ell}^{n-1}$
+  \item The entire solution vector $_{i\ge0}$, more verbosely $_{i=0}^{n-1}$
+\end{itemize}
+
+\textbf{Trusted Setup}
+This is a preprocessing SNARK --- the performance of the Verify and Prove routines are improved because they depend on precomputation performed during setup.
+
+The SNARK requires a trusted setup to produce the Common Reference String (CRS). Unlike a uniform CRS, which could be generated in public from a beacon, our CRS is structured. This means the only effective way to sample from it is to first sample a few uniform values called trapdoors, and then to derive the CRS from these. The setup outputs the CRS, but it very important that the trapdoor does not leak in any way (if it does, it's known as "toxic waste").
+Our implementation of Setup is appropriate for a trusted third party. 
+Multiparty computation or hardware enclaves would be preferable approaches to implementing the trusted setup.
+Modifying babySNARK to include circuit-independent trusted setups~\cite{groth2018updatable}, or with entirely transparent setups~\cite{stark,marlin}, would be important ways to improve.
+
+\textbf{Computing in the exponent} 
+The $H := \left[ h(\tau) \right]_G$ term must be "computed in the exponent." That is, first compute the coefficients of polynomial $h(X) = h_0 + h_1 X + ... + h_m X^n$, and then $H = \sum_{j} h_j \left[ \tau^j \right]_G$ using the powers of $\tau$ from the CRS. In other words, we evaluate $h(X)$ at $\tau$ without ever learning $\tau$.
+
+The other terms, $V_w$, $B_w$, and $V_s$ are computed by the Prover with the help of precomputation from the Setup. We distinguish the precomputation from the CRS, because the precomputation does not have to be part of the ``trusted" portion of the setup. That is, given just the CRS, even without any other information about the trapdoor, the precomputation can be computed in the exponent by anyone in the public.
+
+\textbf{An intuitive explanation of the design}
+The CRS is built around three trapdoors $\tau,{\color{red}\beta},{\color{blue}\gamma}$. 
+%
+%If there are $n$ wires, $\ell$ of which are part of the statement, then the CRS consists of $3+m+n-\ell$ group elements.
+%
+The first $m+1$ terms, $\left[ 1, \tau, ..., \tau^m \right]_G$ can be used by the prover and verifier to evaluate (in the exponent) any degree-$m$ polynomial on $\tau$.
+The $\{{\color{red}\beta}u_i(\tau)\}$ terms are more restrictive, and allow the prover only to evaluate a polynomial that lies in the linear span of $\{u_i(X)\}_{i\ge\ell}^{n-1}$. This corresponds to $U\vec{a}$ for some vector $\vec{a}_\textsf{wit}$. 
+The ${\color{blue}\gamma}$ and ${\color{blue}\gamma}{\color{red}\beta}$ terms are used by the verifier to check that these are consistent with each other. 
+
+\textbf{Extraction (Knowledge Soundness) Proof}
+To validate the intuitive explanation more carefully, we now work through the formal security theorem and proof.
+\begin{theorem}
+The \textsf{BabySNARK} construction above is sound in the Algebraic Group Model as long as the $q$-DLOG assumption holds for $q \ge n+1$.
+\end{theorem}
+\proof
+The proof term $\pi$ consists of three group elements $V_w, B_w, H$. Since we assume an algebraic adversary, these must come along with a representation $\textsf{alg} = V_w(\cdot), B_w(\cdot), H(\cdot)$ as a linear combination of elements from the CRS. We write these out in terms of variables $X, {\color{red}Y}, {\color{blue}Z}$ to visually distinguish these from the sampled trapdoor elements $\tau, {\color{red}\beta}, {\color{blue}\gamma}$. 
+Since the proof involves tracing the presence or absence of these terms across several equations, we also color code them to make it easier to follow.
+{
+$$B_w(\cdot) = b_0 + b_1X+....+b_nX^n + b_{\gamma}{\color{blue}Z} + b_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \sum_{i \ge \ell}{b^{'}_i {\color{red}Y}u_i(X)}$$
+$$V_w(\cdot) = v_0 + v_1X+....+v_nX^n + v_{\gamma}{\color{blue}Z} + v_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \sum_{i \ge \ell}v^{'}_i {\color{red}Y}u_i(X)$$
+$$H(\cdot) = h_0 + h_1X+....+h_nX^n + h_{\gamma}{\color{blue}Z} + h_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \sum_{i \ge \ell}h^{'}_i {\color{red}Y}u_i(X)$$
+
+So the verifying process means the following equations hold at least when $X=\tau, {\color{red}Y}={\color{red}\beta}, {\color{blue}Z}={\color{blue}\gamma}$
+}
+$$
+(I)~~~~~\,\, B_w(\cdot) = {\color{red}Y} V_w(\cdot)
+$$
+$$(II)~\,\, H(\cdot) \, t(\cdot) = V(\cdot)^2-1$$
+
+The proof proceeds in two cases. The first case is different for every SNARK protocol, while the second case is generic (and discussed in more detail in Section~\ref{sec:generic-detail}.
+
+\textbf{Case 1 (Constraints hold everywhere):} Both $(I)$ and $(II)$ hold for $\forall X,Y,Z$.
+If the polynomials produced by the adversary satisfy the equations everywhere, then we can show the coefficients $\{a'_i\}_{i\ge \ell}$ from $V_w(\cdot)$ are a satisfying witness.
+
+(1) Starting from the Equation $(I)$, since RHS has a factor ${\color{red}Y}$ for every item, $B(\cdot)$ in the LHS must only contain terms with a ${\color{red}Y}$ component. So $b_0,b_1,\ldots,b_n,b_\gamma$ are all 0, so we can write $B(\cdot)$ as 
+$$B_w(\cdot) = b_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \sum_{i \ge \ell}b^{'}_i {\color{red}Y}u_i(X)$$
+Dividing by ${\color{red}Y}$, we also see that $V(\cdot)$ must not have any ${\color{red}Y}$ terms at all.
+$$V_w(\cdot) = b_{\gamma \beta}{\color{blue}Z} + \sum_{i \ge \ell}b^{'}_i u_i(X)$$
+
+(2) Next turning to Equation $(II)$, we use $V_w(\cdot)$ from Step (a) to get $V(\cdot)$ below. $\{a_i\}_{i<\ell}$ is the public statement, and we define $\{b^{'}_i\}_{i<\ell}=\{a_i\}_{i<\ell}$ for simplicity of notion.
+$$V(\cdot) = V_w(\cdot) + \sum_{i < \ell}a_i u_i(X) = b_{\gamma \beta}{\color{blue}Z} + \sum_{i \ge 0}b^{'}_i u_i(X)$$
+Then we replace $V(\cdot)$ in equation (1) using the form mentioned above. If $b_{\gamma \beta} \neq 0$, then we would have a $b_{\gamma \beta}^2{\color{blue}Z^2}$ term in the RHS. However, since in the LHS ${\color{blue}Z}$ only appears with degree-1 in $H(\cdot)$ and does not appear in $t(\cdot)$ at all, we can conclude that $b_{\gamma \beta}=0$.
+
+Finally we arrive at the conclusion that the coefficients $\{b^{'}_i\}_{i \ge \ell}$ define a satisfying witness such that
+$$V(\cdot) = \sum_{i \ge 0}b^{'}_i u_i(X)$$ 
+$$V(\cdot)^2 - 1 = 0 \mod t(\cdot).$$
+
+\textbf{Case 2 (Constraints hold at $(\tau,\beta,\gamma)$ but not everywhere):} At least one of (1) and (2) doesn't hold for $\forall X,Y,Z$.
+Define two polynomials
+$$Q_1(\cdot) = B(\cdot) - {\color{red}Y} V(\cdot)$$
+$$Q_2(\cdot) = H(\cdot) \, t(\cdot) -  V(\cdot)^2 + 1.$$
+
+In both cases, we get a multivariate polynomial $Q(X,Y,Z)$ which is not zero but when evaluating at $(\tau,\beta,\gamma)$ will get zero. Using Lemma 1 from Section~\ref{sec:generic-detail}, we know that such prover will win the polynomial checking game which has negligible probability.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% TODO: Where Soundness proofs go wrong
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% This section is omitted because it isn't done yet. The goal is to give an example of a CRS
+% for BabySNARK that reveals too much information, and allows a prover to create unsound 
+% proofs. The point is to give an example of where a soundness proof breaks down, and
+% to show how walking through the soundness proof is a defense against this.
+% But the work in progress example here is not complete, since it we cannot actually
+% describe an attack on soundness. 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\ignore{ 
+\subsection{Where soundness proofs can go wrong}
+Soundness proofs are tricky. And they may seem like an extra busy work, separate from the fun part of working with SNARKs. However, they're critically important!
+
+Performance enhancement of earlier SNARK, without completing the soundness proof, introduced a vulnerability that could lead to false proofs, pointed out by Parno.
+https://eprint.iacr.org/2015/437.pdf
+As noticed by Gabizon, 
+additional elements. 
+Clearly a lesson from this is that one should pay close attention to soundness proofs when designing or optimizing SNARK.
+Steering folks towards is a key goal of this note.
+
+In this section we illustrate how the soundness proof goes wrong.
+The soundness proof is sensitive to the choice of CRS. 
+Adding even a single additional element to the CRS can enable an attacker to forge proofs without knowing the witness, and even to produce proofs of false statements for which no witness exists.
+Carefully inspecting the soundness proof is thus of paramount importance.
+
+To illustrate this point, we give an example of modifying \textsf{BabySNARK}'s setup to include an additional term, and show where the soundness proof breaks down.
+Suppose the CRS also contains an additional $g^\beta$ term.
+$\sigma \leftarrow \{ ..., g^\beta, ...\}$. 
+
+% Then the second pairing check will be
+% $$e(B_w,g)=e(g^{{\color{red}\beta}},V_w)$$
+Since $B_w(\cdot)$ now contains an additional term $b_\beta {{\color{red}Y}}$, when we follow the same steps as above, $V(\cdot)$ will end up with an additional $b_\beta$ term as well. 
+$$B_w(\cdot) = b_{\beta} {\color{red}Y} + b_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \{b^{'}_i {\color{red}Y}u_i(X)\}_{i \ge \ell}$$
+$$V_w(\cdot) = b_\beta + b_{\gamma \beta}{\color{blue}Z} + \{b^{'}_i u_i(X)\}_{i \ge \ell}$$ 
+$$...$$
+$$V(\cdot) = b_\beta + \{b^{'}_i u_i(X)\}_{i \ge 0}$$ 
+$$V(\cdot)^2 - 1 = 0 \mod t(\cdot).$$
+$$...$$
+$$\left(U\left((1+b_\beta) \mdoubleplus \vec{a}_\textsf{stmt} \mdoubleplus \vec{a}_\textsf{wit}\right)^\intercal\right)^2 = \vec{1}$$
+
+This is not exactly the solution to SSP we want because it has $b_\beta$ inside controlled by the prover.\\
+The initial statement of the prover in SSP is: 
+"I know a $\vec{a}$ s.t.  $\left(\sum_{i=0}^{n-1} a_i u_i(X) \right)^2 \equiv 1 \,\, \mod \,\, t(X)$."\\
+But now even if prover doesn't know the solution to this statement, he could still choose a constant shift $b_\beta$ himself s.t.  $\left(b_\beta + \sum_{i=0}^{n-1} a_i u_i(X) \right )^2 \equiv 1 \,\, \mod \,\, t(X)$." He can still generate valid proof, so the soundness is broken.
+
+% and only have two trapdoors ${\color{red}\beta}$ and ${\tau}$.
+}
+
+\section{Generic Reduction from q-\textsc{DLOG} to Polynomial Checking}
+\label{sec:generic-detail}
+In this section we state and prove a general lemma about embedding an instance of the DLOG problem into the setup for the snark game.
+
+In the Generic Group Model, the polynomials chosen by the adversary must be distributed independently of $\vec{\tau} = (\tau, \beta, \gamma)$. Hence Case 2 occurs with low probability by applying the Schwarz-Zippel lemma. In the Algebraic Group Model however, the polynomials may be dependent on $\vec{\tau}$, hence a different approach is needed.
+
+The proof from Fuchsbauer et al.~\cite{fuchsbauer2018algebraic} is based on embedding an instance of the $q$-DLOG problem into the CRS given to the adversary. As they noted, this reduction does not depend on the particular details of the SNARK, just that the CRS is based on polynomial functions of uniformly sampled trapdoors. Gabizon also gave a proof sketch for generic statement here~\cite{generictoagm}.
+  
+\paragraph{$q$-DLOG assumption}~
+The $q$-DLOG game is similar to the ordinary discrete log, except that the adversary sees multiple powers.
+
+\[
+\textsf{Adv}^{q\textsc{-DLOG}}(\Adv) =
+  \Pr \left[
+    \begin{aligned}
+    z \samples \F \\
+    z' \leftarrow \Adv(1, g^z, \ldots, g^{z^q}) \\
+    \hline ~\\[-13pt]
+    z = z'
+    \end{aligned}
+  \right]
+  \]
+The q-DLOG assumption is that this advantage is negligible.
+\[
+  \forall \Adv, \textsf{Adv}^{q\textsc{-DLOG}} \le \textsf{negl}(\| \F  \| )
+  \]
+
+\paragraph{Polynomial Checking Game}~
+Let $\vec{S} : \F^k \rightarrow \F^d$ be a vector of multi-variable polynomials of maximum degree $q$.
+The polynomials $\vec{S}$ correspond to the SNARK setup, where $\vec{\tau}$ is the uniformly sampled trapdoor and $\sigma \leftarrow g^{\vec{S}(\vec{\tau})}$ is the resulting common reference string.
+
+\[
+\textsf{Adv}^{\textsc{PolyCheck}}_{k,\vec{S}}(\Adv) =
+  \Pr \left[
+    \begin{aligned}
+    \vec{\tau} \samples \F^k \\
+        \sigma \leftarrow g^{\vec{S}(\vec{\tau})} \\ 
+    Q(\vec{\mathbf{T}}) \leftarrow \Adv(\sigma) \\
+    \hline ~\\[-13pt]
+    Q(\vec{\tau}) = 0 ~\land~
+    Q(\vec{\mathbf{T}}) \not\equiv 0
+    \end{aligned}
+  \right]
+  \]
+ 
+
+
+\begin{lemma}
+Let $\vec{S} : \F^k \rightarrow \F^d$ be a set of polynomials of maximum degree $q$.
+For each adversary $\Adv$ that wins the \textsc{PolyCheck} game, we can derive an adversary $\mathcal{B}_{\Adv,\vec{S}}$ that solves the q-\textsc{DLOG} problem with similar probability.
+\end{lemma}
+\[
+  \forall \Adv,  \textsf{Adv}^{\textsc{PolyCheck}}_{k,\vec{S}}(\Adv) \le 
+  \textsf{Adv}^{q\textsc{-DLOG}}(\mathcal{B}_{\Adv,\vec{S}})  
+      + \frac{k}{\| \F  \|}
+  \]
+\proof
+We define $\mathcal{B}_{\mathcal{\Adv},\vec{S}}$ as follows:
+\[
+\begin{aligned}
+\mathcal{B}_{\Adv,\vec{S}}(g, g^z, \ldots, g^{z^q}): & \\
+    \vec{r} \samples \F^k, ~
+    \vec{s} \samples \F^k \\
+    \sigma \leftarrow g^{\vec{S}(\vec{r}{z} + \vec{s})} \\ 
+    Q(\vec{\mathbf{T}}) \leftarrow \Adv(\sigma) \\
+    \textnormal{Let~} Q'(\mathbf{Z}) = Q(\vec{r}~\mathbf{Z} + \vec{s}) \\
+    \textnormal{Solve for roots of $Q'(\mathbf{Z})$ to find $z$ (Fact~2.3)}
+\end{aligned}
+\]
+Suppose $\Adv$ has advantage $p$ in the \textsc{PolyCheck} game.
+$Q(\vec{\mathbf{T}})$ in the \textsc{PolyCheck} game is distributed identically as $Q(\vec{\mathbf{T}})$ in the q-\textsc{DLOG} game, since $\vec{\tau}$ is distributed the same as $\vec{r} z + \vec{s}$.
+Let $d^*$ be the maximum total degree of $Q(\mathbf{\vec{T}})$ in \textsc{PolyCheck}. 
+With probability $p$, we have $d^* \ge 1$, since $Q(\vec{\tau})=0$ but $Q(\vec{\mathbf{T}}) \not\equiv 0$.
+
+Now consider the polynomial $Q''(\vec{\mathbf{R}}, \vec{\mathbf{S}}, \mathbf{Z}) = Q(\vec{\mathbf{R}} \mathbf{Z} + \vec{\mathbf{S}})$. Collecting the $\mathbf{Z}$ terms, we can write this as
+\[
+  Q''(\vec{\mathbf{R}}, \vec{\mathbf{S}}, \mathbf{Z}) = 
+     q^*(\vec{\mathbf{R}}) \mathbf{Z}^{d^*} + q_\textsf{rest}(\vec{\mathbf{R}},\vec{\mathbf{S}}) \cdot \left( 1, \mathbf{Z}, ..., \mathbf{Z}^{d^*-1} \right)^\intercal
+\]
+for some polynomial $q^*(\vec{\mathbf{R}})$ and $q_\textsf{rest}(\vec{\mathbf{R}},\vec{\mathbf{S}}) : \F^{2k} \rightarrow \F^{d^*-1}$. That is, the coefficient of the $\vec{\mathbf{Z}}^{d^*}$ term, $q^*(\vec{\mathbf{R}})$, cannot depend on $\mathbf{\vec{S}}$. 
+By the Schwartz-Lippel lemma, since $\vec{r}$ is sampled uniformly from $\mathbf{F}^k$, independently of $\vec{\tau}$, we have that $\Pr \left[ q^*(\vec{r}) = 0\right] \le k / \| \F \|$. Hence we have that the coefficient of the $\mathbf{Z}^{d^*}$ term in $Q'(\mathbf{Z})$ is zero with at most this probability. Note that this holds regardless of the fact that $\vec{s}$, $z$, and other terms in $Q'$ may be dependent on $\vec{r}$ and $\vec{\tau}$.
+\qed
+
+\section{FFT-based and Sparsity-based optimizations}
+In the accompanying code, we include an alternative implementation that shows off a few algorithmic improvements. In particular, the Setup and Prover computation overhead is reduced from quadratic to quasilinear (with the Verify routine remaining the same).
+
+\paragraph{Sparsity}
+The BabySNARK protocol is defined for any square constraint system.
+However, when we generate the constraints by compiling a boolean circuit as described, 
+the resulting constraint system will be sparse.
+More specifically, if the circuit has constant average fan-in (say, an average fan-in of 2), then $U$ is an $m \times n$ matrix, but will have only $O(m)$ non-zero elements with $m > n$.
+To take advantage of this sparsity, we can implement the evaluation representation of polynomials (e.g., of $u_i(X)$) so as to keep track of just the non-zero elements.
+For example, when the prover sums the $a_i u_i(X)$ terms while computing $h(X)$, this summation alone incurs an $O(m^2)$ cost. In the sparse representation, this only costs $O(m)$ since we only add in the non-zero terms.
+
+\paragraph{FFT-friendly parameters}
+We can also improve the running time of interpolation and extrapolation from $O(m^2)$ to $O(m \log m)$. For example, when the prover computes $H$ by evaluating $h(\tau)$ in the exponent, we need to interpolate $h(X)$ to its coefficient form. 
+
+The SNARK construction and soundness proof work just fine for any choice of distinct roots, $r_0,...,r_{m-1}$. However, to implement radix-2 FFT, we need that the order of the multiplicative group of $\F_p^*$ is highly 2-adic, meaning that $2^\kappa|p-1$ for some sufficiently large $2^\kappa \ge m$. 
+When this is the case, we can find a primitive $2^\kappa$'th root of unity, such that $\omega_0,\omega_1,...,\omega_{2^\kappa-1}$ are all distinct, but $\omega^{2^\kappa}=1$. We can then use the Fast Fourier Transform (FFT) over finite fields, also known as the Number Theoretic Transform.
+We choose the roots accordingly,
+\[
+r_0,...,r_{m-1} = \omega^0,\omega^1,...,\omega^{m-1}.
+\].
+
+We summarize the resulting asymptotic performance after applying these algorithmic optimizations, assuming the field size is constant, and that the statement is size $\ell$.
+TODO: improve this
+\begin{table*}[h]
+    \centering
+    \begin{tabular}{r|c|c|c|c|}
+         & Setup & Prover & Verifier & Proof Size \\
+         BabySNARK    & $O(m^3)$ & $O(m^3)$ & \multirow{2}{*}{$O(\ell)$} & \multirow{2}{*}{$O(1)$} \\
+         BabySNARK (opt) & $O(m \log m)$ & $O(m \log m)$ & & \\
+    \end{tabular}
+    \caption{Asymptotic performance analysis of babySNARK algorithms}
+    \label{tbl:asymptotics}
+\end{table*}
+
+\section*{Acknowledgements}
+We thank Dakshita Khurana and Charalampos Papamanthou for suggestions.
+
+\bibliographystyle{unsrt}
+\bibliography{refs}
+
+\end{document}
