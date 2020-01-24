@@ -295,7 +295,7 @@ and discuss it below.
 \textbf{Note on indexing}
 There are three kinds of indexing that occur. To keep the clutter down, we abbreviate them, but explain more clearly here:
 \begin{itemize}
-  \item Just the statement elements $_{i<\ell}$, could be written more verbosely as $_{i=0}^{n-1}$
+  \item Just the statement elements $_{i<\ell}$, could be written more verbosely as $_{i=0}^{\ell-1}$
   \item Just the witness elements $_{i\ge\ell}$, more verbosely $_{i=\ell}^{n-1}$
   \item The entire solution vector $_{i\ge0}$, more verbosely $_{i=0}^{n-1}$
 \end{itemize}
@@ -352,7 +352,7 @@ $$B_w(\cdot) = b_{\gamma \beta}{\color{red}Y}{\color{blue}Z} + \sum_{i \ge \ell}
 Dividing by ${\color{red}Y}$, we also see that $V(\cdot)$ must not have any ${\color{red}Y}$ terms at all.
 $$V_w(\cdot) = b_{\gamma \beta}{\color{blue}Z} + \sum_{i \ge \ell}b^{'}_i u_i(X)$$
 
-(2) Next turning to Equation $(II)$, we use $V_w(\cdot)$ from Step (a) to get $V(\cdot)$ below. $\{a_i\}_{i<\ell}$ is the public statement, and we define $\{b^{'}_i\}_{i<\ell}=\{a_i\}_{i<\ell}$ for simplicity of notion.
+(2) Next turning to Equation $(II)$, we use $V_w(\cdot)$ from Step (1) to write $V(\cdot)$ as follows, where $\{a_i\}_{i<\ell}$ is the public statement, and we define $\{b^{'}_i\}_{i<\ell}=\{a_i\}_{i<\ell}$ for simplicity of notation.
 $$V(\cdot) = V_w(\cdot) + \sum_{i < \ell}a_i u_i(X) = b_{\gamma \beta}{\color{blue}Z} + \sum_{i \ge 0}b^{'}_i u_i(X)$$
 Then we replace $V(\cdot)$ in equation (1) using the form mentioned above. If $b_{\gamma \beta} \neq 0$, then we would have a $b_{\gamma \beta}^2{\color{blue}Z^2}$ term in the RHS. However, since in the LHS ${\color{blue}Z}$ only appears with degree-1 in $H(\cdot)$ and does not appear in $t(\cdot)$ at all, we can conclude that $b_{\gamma \beta}=0$.
 
@@ -360,7 +360,7 @@ Finally we arrive at the conclusion that the coefficients $\{b^{'}_i\}_{i \ge \e
 $$V(\cdot) = \sum_{i \ge 0}b^{'}_i u_i(X)$$ 
 $$V(\cdot)^2 - 1 = 0 \mod t(\cdot).$$
 
-\textbf{Case 2 (Constraints hold at $(\tau,\beta,\gamma)$ but not everywhere):} At least one of (1) and (2) doesn't hold for $\forall X,Y,Z$.
+\textbf{Case 2 (Constraints hold at $(\tau,\beta,\gamma)$ but not everywhere):} At least one of ($I$) and ($II$) doesn't hold for $\forall X,Y,Z$.
 Define two polynomials
 $$Q_1(\cdot) = B(\cdot) - {\color{red}Y} V(\cdot)$$
 $$Q_2(\cdot) = H(\cdot) \, t(\cdot) -  V(\cdot)^2 + 1.$$
