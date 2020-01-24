@@ -91,7 +91,7 @@ The constraint system we describe, while expressive enough to embed boolean circ
 
 Other presentations carry around a constant $a_0=1$ term, separately from the statement $a_1,\dots,a_\ell$; since this can just be included in the statement, we elide this to save a few symbols.
 
-Our soundness proof is in the Algebraic Group Model~\cite{fuchsbauer2018algebraic}. Proofs in this setting are simpler than in the standard model using knowledge-of-exponent assumptions. We help shed light on the nature of such proofs by formalizing a generic step (reduction to q-DLOG) that is reusable for many other SNARK variants as well.
+Our soundness proof is in the Algebraic Group Model~\cite{fuchsbauer2018algebraic}. Proofs in this setting are simpler than in the standard model using knowledge-of-exponent assumptions. We help shed light on the nature of such proofs by formalizing a generic step (reduction to q-DLOG) that is reusable for many other SNARK variants too.
 
 \section{Preliminaries}
 
@@ -250,7 +250,7 @@ The following attack game lets the adversary choose both the statement and the p
   \]
 
 \begin{definition}[Knowledge Soundness]
-Putting these together, A SNARK is knowledge sound if $\forall \Adv$, there exists an extractor $\Ext$, such that the advantage  $\textsf{Adv}^{\textsc{Knwl-Sound}}_{k,\textsf{Setup},\textsf{Verify}}(V, \Adv, \Ext)$ game is negligible in the size of the field.
+Putting these together, A SNARK is knowledge sound if $\forall \Adv$, there exists an extractor $\Ext$, such that the advantage  $\textsf{Adv}^{\textsc{Knwl-Sound}}_{k,\textsf{Setup},\textsf{Verify}}(V, \Adv, \Ext)$ game is negligible in the field size.
 \end{definition}
 
 \section{Baby SNARK}
