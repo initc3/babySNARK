@@ -150,7 +150,6 @@ def evaluate_in_exponent(powers_of_tau, poly):
     return sum([powers_of_tau[i] * poly.coefficients[i] for i in
                 range(poly.degree()+1)], G*0)
 
-
 # Setup
 def babysnark_setup(U, n_stmt):
     (m, n) = U.shape
